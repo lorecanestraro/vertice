@@ -1,0 +1,13 @@
+# Tema do cockpit Vértice Retail — paleta do manual de identidade.
+# Fixa o tema claro como padrão para que os widgets nativos do Streamlit
+# (abas, sidebar, sliders, multiselect) nasçam na mesma paleta do CSS do app.
+[theme]
+base = "light"
+primaryColor = "#1E1EE0"
+backgroundColor = "#FAFAFA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#171717"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"

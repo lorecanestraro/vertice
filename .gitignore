@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+
+# A base bruta não é necessária para o app (ele lê só os CSVs tratados).
+# Remova esta linha se quiser versionar também a entrada do tratamento.
+vendas.xlsx
