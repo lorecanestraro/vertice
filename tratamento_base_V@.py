@@ -30,7 +30,7 @@ import os
 import numpy as np
 import pandas as pd
 
-PROCESSAR_OUTRAS_BASES = False   # ligue se precisar de atendimento/clientes/estoque
+PROCESSAR_OUTRAS_BASES = True   # ligue se precisar de atendimento/clientes/estoque
 
 
 # ======================================================================

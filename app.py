@@ -1,808 +1,1396 @@
 """
-Vértice Retail — Cockpit de Rentabilidade
-Bootcamp EloGroup 2026 | AI Consulting Lab
+Vértice Retail | Painel de rentabilidade comercial
+Bootcamp EloGroup 2026
 
 Como rodar:
-    pip install streamlit plotly pandas numpy
+    pip install -r requirements.txt
     streamlit run app.py
 
-Requer 'vendas_tratada.csv' e 'calendario_sazonal.csv' no mesmo diretório
-(gerados por tratamento_base_V@.py).
+Requer 'vendas_tratada.csv' no mesmo diretório (gerado por tratamento_base_V@.py).
+Todos os números, frases de insight e recomendações são calculados a partir dessa
+base, sobre o recorte de filtros ativo.
 """
 
+import html
 from string import Template
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.colors import sample_colorscale
+from plotly.subplots import make_subplots
 
 # ======================================================================
-# IDENTIDADE VISUAL — Manual Vértice Retail
-# ======================================================================
-ELO_BLUE = "#1E1EE0"
-MAGENTA = "#D6249A"
-ROXO = "#6E2BD9"
-CIANO = "#0EA5E9"
-AMBAR = "#F59E0B"
-SUCESSO = "#16A34A"
-ERRO = "#DC2626"
-GRAFITE = "#171717"
-CINZA_ESCURO = "#3F3F46"
-CINZA_MEDIO = "#71717A"
-CINZA_CLARO = "#E4E4E7"
-BRANCO_GELO = "#FAFAFA"
-
-PALETA = [ELO_BLUE, MAGENTA, ROXO, CIANO, AMBAR, SUCESSO, CINZA_MEDIO, ERRO]
-COR_CANAL = {
-    "Marketplace": MAGENTA,
-    "Google Ads": ELO_BLUE,
-    "Instagram Ads": ROXO,
-    "Orgânico": SUCESSO,
-    "TikTok Ads": CIANO,
-    "Email Marketing": AMBAR,
-    "Influenciador": CINZA_MEDIO,
-}
-COR_CATEGORIA = {"Moda": ELO_BLUE, "Beleza": MAGENTA, "Lifestyle": ROXO, "Acessórios": CIANO}
-
-st.set_page_config(page_title="Vértice Retail — Cockpit de Rentabilidade",
-                   page_icon="◆", layout="wide", initial_sidebar_state="expanded")
-
-# ======================================================================
-# TEMA
+# PALETA
 # ----------------------------------------------------------------------
-# O cockpit NÃO herda o tema do Streamlit: toda superfície e todo texto
-# são pinados na paleta do manual, para que a leitura seja idêntica com o
-# usuário em tema claro ou escuro. Renderizado com st.html — que não passa
-# pelo parser de markdown; via st.markdown o bloco era cortado na primeira
-# linha em branco e o CSS vazava como texto no topo da página.
+# Superfícies: os cinco tons roxo-escuros definidos para o painel.
+# Cores de dados: tons validados com validate_palette.js no modo escuro,
+# contra a superfície dos cartões (#211928): faixa de luminosidade,
+# separação para daltonismo entre vizinhos e contraste mínimo de 3:1.
 # ======================================================================
+PRETO_ARROXEADO = "#1A191E"     # fundo da página
+CINZA_MUITO_ESCURO = "#1C191F"  # barra de filtros e navegação
+ROXO_ESCURO = "#211928"         # cartões (superfície dos gráficos)
+ROXO_PROFUNDO = "#2B1A31"       # elementos elevados: big numbers, campos, recomendações
+ROXO_AMEIXA = "#321A3B"         # destaques: aba ativa, trilhas, cabeçalho de tabela
+
+BORDA = "#33243D"
+BORDA_FORTE = "#4B3658"
+GRADE = "#31243B"
+TEXTO = "#F3EEF7"
+TEXTO_2 = "#B9AFC4"
+TEXTO_3 = "#8F84A0"
+
+VIOLETA = "#8B5CF6"
+ROSA = "#EC4899"
+CIANO = "#0891B2"
+AMBAR = "#D97706"
+FUCSIA = "#C026D3"
+AZUL = "#3B82F6"
+LARANJA = "#EA580C"
+LILAS = "#C4B5FD"
+ROSA_CLARO = "#F9A8D4"
+BOM = "#34D399"
+RUIM = "#FB7185"
+
+# Cor fixa por entidade, na ordem validada: um filtro nunca repinta quem sobra.
+COR_CANAL = {
+    "Google Ads": VIOLETA, "Marketplace": ROSA, "TikTok Ads": CIANO, "Email Marketing": AMBAR,
+    "Influenciador": FUCSIA, "Instagram Ads": AZUL, "Orgânico": LARANJA,
+}
+COR_CATEGORIA = {"Moda": VIOLETA, "Beleza": ROSA, "Lifestyle": CIANO, "Acessórios": AMBAR}
+COR_PAGAMENTO = {"Cartão de Crédito": VIOLETA, "PIX": ROSA, "Boleto": CIANO, "Vale-Troca": AMBAR}
+CORES_DIM = {"canal": COR_CANAL, "categoria": COR_CATEGORIA, "metodo_pagamento": COR_PAGAMENTO}
+TEMA_COR = {"Frete": CIANO, "Desconto": ROSA, "Ticket": AMBAR, "Devolução": FUCSIA, "Sazonalidade": AZUL}
+
+COR_BASE = VIOLETA   # série única
+COR_FOCO = ROSA      # entidade em destaque numa série única
+COR_NEUTRA = "#6B5A7B"
+ESCALA_SEQ = [[0, "#7453D6"], [0.35, "#9270F5"], [0.7, "#B9A2FF"], [1, "#E4DAFF"]]
+ESCALA_DIV = [[0, ROSA], [0.5, "#5A4D66"], [1, CIANO]]
+
+H_P, H_M, H_G = 280, 330, 380  # alturas padrão dos gráficos
+
+st.set_page_config(page_title="Vértice Retail | Rentabilidade", layout="wide",
+                   initial_sidebar_state="collapsed")
+
 CSS = Template("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
-:root { color-scheme: light; }
-html, body, .stApp,
-[data-testid="stAppViewContainer"], [data-testid="stMain"],
-[data-testid="stMainBlockContainer"] { background: $BRANCO_GELO !important; color: $GRAFITE !important; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root { color-scheme: dark; }
+.stApp { background-color: $PRETO_ARROXEADO !important; color: $TEXTO !important;
+   background-image: radial-gradient(900px 440px at 6% -10%, rgba(139,92,246,.20), transparent 62%),
+                     radial-gradient(760px 400px at 102% -4%, rgba(236,72,153,.13), transparent 60%) !important;
+   background-attachment: fixed !important; }
+[data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stMainBlockContainer"] {
+   background: transparent !important; color: $TEXTO !important; }
 [data-testid="stHeader"] { background: transparent !important; }
-[data-testid="stToolbar"] svg { fill: $CINZA_MEDIO !important; }
-.block-container { padding-top: 2.2rem; max-width: 1500px; }
-html, body, [class*="css"], [data-testid="stMarkdownContainer"] {
-   font-family: 'Inter', Helvetica, Arial, sans-serif; }
-[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { color: $CINZA_ESCURO; }
-h1, h2, h3, h4 { font-family: 'Space Grotesk', Montserrat, Arial, sans-serif !important;
-   color: $GRAFITE !important; }
-h1 { font-size: 34px !important; font-weight: 700 !important; letter-spacing: -0.02em; }
-h2 { font-size: 23px !important; font-weight: 600 !important; margin-top: 8px !important;
-     letter-spacing: -0.01em; }
-h3 { font-size: 18px !important; font-weight: 600 !important; }
-hr { margin: 10px 0 22px; border-color: $CINZA_CLARO; }
-.hero { background: linear-gradient(115deg, $GRAFITE 0%, #241947 55%, $ROXO 130%);
-        border-radius: 18px; padding: 30px 34px; margin-bottom: 8px; }
-.hero h1 { color: #FFFFFF !important; margin: 0; }
-.hero p { color: rgba(255,255,255,.75) !important; font-size: 15px; margin: 8px 0 0 0; }
-.hero .tag { display:inline-block; background: rgba(255,255,255,.12);
-   border:1px solid rgba(255,255,255,.20); border-radius:999px; padding:4px 12px;
-   font-size:12px; font-weight:600; margin-right:8px; color:#FFFFFF; }
-.kpi { background:#FFFFFF; border:1px solid $CINZA_CLARO; border-radius:14px;
-   padding:22px 22px 20px; height:100%; position:relative; overflow:hidden;
-   box-shadow: 0 1px 2px rgba(23,23,23,.04); }
-.kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:$ELO_BLUE; }
-.kpi.danger::before { background:$ERRO; }
-.kpi.ok::before { background:$SUCESSO; }
-.kpi.warn::before { background:$AMBAR; }
-.kpi-label { font-size:12.5px; color:$CINZA_MEDIO; font-weight:600; margin-bottom:6px;
-   text-transform:uppercase; letter-spacing:.04em; }
-.kpi-value { font-family:'Space Grotesk',sans-serif; font-size:38px; font-weight:700;
-   line-height:1.05; color:$GRAFITE; }
-.kpi-sub { font-size:12.5px; margin-top:8px; font-weight:500; color:$CINZA_MEDIO; }
-.kpi-sub b { font-weight:700; color:$CINZA_ESCURO; }
-.msg { font-size:15.5px; color:$CINZA_ESCURO !important; margin:4px 0 18px 0; line-height:1.5;
-   border-left:4px solid $MAGENTA; padding-left:16px; }
-.nota { font-size:12.5px; color:$CINZA_MEDIO !important; margin-top:8px; line-height:1.45; }
-.stTabs [data-baseweb="tab-list"] { gap:30px; background:transparent !important;
-   border-bottom:1px solid $CINZA_CLARO; }
-.stTabs [data-baseweb="tab"] { background:transparent !important; color:$CINZA_MEDIO !important;
-   padding-top:8px; padding-bottom:12px; }
-.stTabs [data-baseweb="tab"] p { color:inherit !important; font-family:'Inter';
-   font-weight:600 !important; font-size:15px !important; }
-.stTabs [data-baseweb="tab"]:hover { color:$GRAFITE !important; }
-.stTabs [aria-selected="true"], .stTabs [aria-selected="true"] p { color:$ELO_BLUE !important; }
-.stTabs [data-baseweb="tab-highlight"] { background-color:$ELO_BLUE !important; }
-.stTabs [data-baseweb="tab-border"] { background-color:$CINZA_CLARO !important; }
-[data-testid="stSidebar"], [data-testid="stSidebarContent"],
-[data-testid="stSidebarUserContent"] { background:#FFFFFF !important; }
-[data-testid="stSidebar"] { border-right:1px solid $CINZA_CLARO; }
-[data-testid="stSidebar"] h2 { font-size:16px !important; }
-[data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color:$CINZA_ESCURO !important; }
-[data-testid="stWidgetLabel"] p { color:$CINZA_ESCURO !important; font-weight:600 !important;
-   font-size:13px !important; }
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color:$CINZA_MEDIO !important; }
+[data-testid="stToolbar"] svg { fill: $TEXTO_3 !important; }
+.block-container { padding: 1.3rem 2rem 2.5rem !important; max-width: 1560px; }
+html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, textarea {
+   font-family: 'Inter', Helvetica, Arial, sans-serif !important; }
+[data-testid="stMarkdownContainer"] p { color: $TEXTO_2; }
+/* O Streamlit aplica margin-bottom:-16px ao bloco de markdown para compensar a margem de um
+   parágrafo. Aqui todo markdown é HTML próprio em div, sem essa margem: sem o reset, subtítulos,
+   notas e caixas de insight ficam 16px sobrepostos ao elemento seguinte.
+   ATENÇÃO: não usar sinais de menor/maior neste bloco; o sanitizador do st.html os lê como tags
+   e descarta o estilo inteiro. */
+[data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+[data-testid="stVerticalBlock"] { gap: 0.85rem; }
+
+/* cabeçalho */
+.topo { display:flex; justify-content:space-between; align-items:center; gap:24px; padding: 2px 2px 4px; }
+.marca { display:flex; align-items:center; gap:14px; }
+.logo { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+   background: linear-gradient(135deg, $VIOLETA 0%, $ROSA 100%); color:#FFFFFF; font-weight:800; font-size:20px;
+   box-shadow: 0 8px 24px rgba(139,92,246,.35); }
+.topo .titulo { font-size: 22px; font-weight: 700; color: $TEXTO; letter-spacing: -0.02em; }
+.topo .titulo span { background: linear-gradient(90deg, $LILAS, $ROSA_CLARO); -webkit-background-clip: text;
+   background-clip: text; color: transparent; }
+.topo .sub { font-size: 13px; color: $TEXTO_3; margin-top: 2px; }
+.meta { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.pilula { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:$TEXTO_2; background:$ROXO_PROFUNDO;
+   border:1px solid $BORDA; border-radius:999px; padding:6px 12px; }
+.ponto { width:7px; height:7px; border-radius:50%; background:$BOM; box-shadow:0 0 0 3px rgba(52,211,153,.18); }
+
+/* cartões */
+div[class*="st-key-card_"] { background: linear-gradient(180deg, rgba(50,26,59,.45) 0%, rgba(33,25,40,0) 140px), $ROXO_ESCURO;
+   border: 1px solid $BORDA; border-radius: 14px; padding: 16px 18px 14px; gap: .6rem;
+   box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 12px 32px rgba(0,0,0,.28); }
+[data-testid="stColumn"] div[class*="st-key-card_"] { height: 100%; }
+div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radius: 12px; padding: 10px 16px 12px; }
+.card-titulo { font-size: 15px; font-weight: 600; color: $TEXTO; line-height: 1.35; display:flex; align-items:center; gap:9px; }
+.card-titulo::before { content:""; flex: 0 0 8px; height:8px; border-radius:2px; background: linear-gradient(135deg, $VIOLETA, $ROSA); }
+.card-sub { font-size: 12px; color: $TEXTO_3; margin-top: 3px; line-height: 1.4; }
+
+/* big numbers */
+.kpi { display:flex; flex-direction:column; background: linear-gradient(160deg, $ROXO_PROFUNDO 0%, $ROXO_ESCURO 100%);
+   border:1px solid $BORDA; border-radius:14px; padding:14px 16px 10px; min-height:160px; overflow:hidden; }
+.kpi-topo { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.kpi-rotulo { font-size:12px; font-weight:500; color:$TEXTO_2; }
+.icone { flex: 0 0 30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+   background: rgba(139,92,246,.16); color:$LILAS; }
+.icone svg { width:16px; height:16px; }
+.kpi-valor { font-size:28px; font-weight:700; color:$TEXTO; line-height:1.15; margin-top:8px; white-space:nowrap; letter-spacing:-0.02em; }
+.kpi-linha { display:flex; align-items:center; gap:8px; margin: 4px 0 8px; font-size:12px; color:$TEXTO_3; flex-wrap:wrap; }
+.delta { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; border-radius:999px; padding:2px 8px; }
+.delta.bom { color:$BOM; background: rgba(52,211,153,.12); }
+.delta.ruim { color:$RUIM; background: rgba(251,113,133,.12); }
+.delta.neutro { color:$TEXTO_2; background: rgba(185,175,196,.10); }
+.spark { display:block; margin-top:auto; width:100%; height:34px; }
+
+/* insight */
+.insight { background: linear-gradient(135deg, rgba(139,92,246,.17) 0%, rgba(236,72,153,.07) 100%);
+   border:1px solid rgba(139,92,246,.32); border-radius:10px; padding:11px 14px; }
+.insight .rot { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; color:$LILAS; letter-spacing:.06em; text-transform:uppercase; }
+.insight .rot svg { width:13px; height:13px; }
+.insight .txt { font-size:13px; color:$TEXTO; margin-top:4px; line-height:1.55; }
+.insight .acao { font-size:13px; color:$TEXTO_2; margin-top:6px; line-height:1.5; }
+.insight .acao b { color:$ROSA_CLARO; font-weight:600; }
+
+/* recomendações */
+.recs { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1100px) { .recs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .recs { grid-template-columns: 1fr; } }
+.rec { border:1px solid $BORDA; border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:8px;
+   background: linear-gradient(180deg, $ROXO_PROFUNDO 0%, $ROXO_ESCURO 100%); }
+.rec-topo { display:flex; align-items:center; gap:10px; }
+.rank { flex: 0 0 30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+   font-size:12px; font-weight:800; color:#FFFFFF; background: linear-gradient(135deg, $VIOLETA, $ROSA); }
+.tema { font-size:11px; font-weight:600; color:$TEXTO; border-radius:999px; padding:3px 10px; }
+.rec-aba { margin-left:auto; font-size:11px; color:$TEXTO_3; white-space:nowrap; }
+.rec-titulo { font-size:14px; font-weight:600; color:$TEXTO; line-height:1.35; }
+.rec-texto { font-size:13px; color:$TEXTO_2; line-height:1.55; }
+.rec-valor { display:flex; align-items:baseline; gap:6px; font-size:12px; color:$TEXTO_3; flex-wrap:wrap; }
+.rec-valor b { font-size:20px; font-weight:700; color:$TEXTO; letter-spacing:-.01em; }
+.medidor { height:6px; border-radius:999px; background:$ROXO_AMEIXA; overflow:hidden; }
+.medidor span { display:block; height:100%; border-radius:999px; background: linear-gradient(90deg, $VIOLETA, $ROSA); }
+.rec-acao { font-size:13px; color:$TEXTO; line-height:1.5; border-top:1px solid $BORDA; padding-top:8px; margin-top:auto; }
+.rec-acao b { color:$ROSA_CLARO; font-weight:600; }
+
+/* peças auxiliares */
+.nota { font-size:12px; color:$TEXTO_3 !important; line-height:1.45; }
+.chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:$TEXTO; background:$ROXO_AMEIXA;
+   border:1px solid $BORDA_FORTE; border-radius:999px; padding:5px 12px; }
+.stats { display:flex; flex-wrap:wrap; gap:10px; }
+.stat { background:$ROXO_PROFUNDO; border:1px solid $BORDA; border-radius:10px; padding:10px 14px; min-width:190px; }
+.stat .r { font-size:11px; color:$TEXTO_3; }
+.stat .v { font-size:18px; font-weight:700; color:$TEXTO; margin:2px 0; }
+.legenda-div { display:flex; align-items:center; gap:10px; font-size:11px; color:$TEXTO_3; margin-top:2px; }
+.barra-div { flex:1; height:8px; border-radius:999px; background: linear-gradient(90deg, $ROSA, #5A4D66, #0891B2); }
+
+/* navegação: nesta versão do Streamlit as abas usam react-aria (role tablist e data-testid stTab), sem baseweb */
+[data-testid="stTabs"] { margin-top: 6px; }
+[data-testid="stTabs"] [role="tablist"] { display:inline-flex !important; gap:4px; width:auto !important;
+   background:$CINZA_MUITO_ESCURO !important; border:1px solid $BORDA !important; border-radius:12px; padding:5px;
+   box-shadow:none !important; }
+[data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display:none !important; }
+[data-testid="stTabs"] > div:first-child { border-bottom:none !important; box-shadow:none !important; }
+[data-testid="stTab"] { background:transparent !important; color:$TEXTO_3 !important; padding:8px 14px !important;
+   border-radius:8px !important; border:none !important; }
+[data-testid="stTab"] p { color:inherit !important; font-weight:600 !important; font-size:13.5px !important; }
+[data-testid="stTab"]:hover { color:$TEXTO !important; background: rgba(139,92,246,.10) !important; }
+[data-testid="stTab"][aria-selected="true"] { color:$TEXTO !important;
+   background: linear-gradient(135deg, rgba(139,92,246,.38), rgba(236,72,153,.22)) !important;
+   box-shadow: inset 0 0 0 1px rgba(196,181,253,.25) !important; }
+[data-testid="stTabs"] [role="tabpanel"] { padding-top: 14px; }
+
+/* controles */
+[data-testid="stWidgetLabel"] p { color:$TEXTO_2 !important; font-weight:500 !important; font-size:12px !important; }
 [data-baseweb="select"] > div, [data-baseweb="input"] > div, [data-baseweb="base-input"] {
-   background-color:#FFFFFF !important; border-color:$CINZA_CLARO !important; color:$GRAFITE !important; }
-[data-baseweb="select"] svg { fill:$CINZA_MEDIO !important; }
+   background-color:$ROXO_PROFUNDO !important; border-color:$BORDA !important; color:$TEXTO !important; border-radius:9px !important; }
+[data-baseweb="input"] input, [data-baseweb="base-input"] input { color:$TEXTO_2 !important; -webkit-text-fill-color:$TEXTO_2 !important; }
+[data-baseweb="select"] svg { fill:$TEXTO_3 !important; }
 [data-baseweb="popover"] [role="listbox"], [data-baseweb="menu"], [data-baseweb="menu"] li {
-   background-color:#FFFFFF !important; color:$GRAFITE !important; }
-[data-baseweb="menu"] li:hover { background-color:$BRANCO_GELO !important; }
-[data-baseweb="tag"] { background-color:$ELO_BLUE !important; border-color:$ELO_BLUE !important; }
-[data-baseweb="tag"] span, [data-baseweb="tag"] svg { color:#FFFFFF !important; fill:#FFFFFF !important; }
-[data-testid="stSlider"] [role="slider"] { background-color:$ELO_BLUE !important; }
-[data-testid="stThumbValue"] { color:$ELO_BLUE !important; font-weight:600 !important; }
-[data-testid="stSliderTickBarMin"], [data-testid="stSliderTickBarMax"] {
-   color:$CINZA_MEDIO !important; background:transparent !important; }
-[data-testid="stCheckbox"] p { color:$CINZA_ESCURO !important; }
-/* O Streamlit fixa a altura deste container; border e padding roubariam essa
-   altura por dentro e cortariam o título do eixo x. A moldura vem de box-shadow,
-   que é puramente visual e não consome layout. */
-[data-testid="stPlotlyChart"] { background:#FFFFFF; border:none; padding:0;
-   border-radius:14px; box-shadow: 0 0 0 1px $CINZA_CLARO, 0 1px 2px rgba(23,23,23,.05); }
-.modebar { background:transparent !important; }
+   background-color:$ROXO_PROFUNDO !important; color:$TEXTO !important; }
+[data-baseweb="menu"] li:hover { background-color:$ROXO_AMEIXA !important; }
+[data-baseweb="tag"] { background-color: rgba(139,92,246,.24) !important; border:none !important; }
+[data-baseweb="tag"] span { color:$TEXTO !important; }
+[data-baseweb="tag"] svg { fill:$LILAS !important; }
+[data-testid="stSlider"] [role="slider"] { background-color:$VIOLETA !important; box-shadow: 0 0 0 4px rgba(139,92,246,.25) !important; }
+[data-testid="stThumbValue"] { color:$LILAS !important; font-weight:600 !important; }
+[data-testid="stSliderTickBarMin"], [data-testid="stSliderTickBarMax"] { color:$TEXTO_3 !important; background:transparent !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color:$TEXTO_3 !important; }
+[data-testid="stCheckbox"] p, [data-testid="stToggle"] p { color:$TEXTO_2 !important; font-size:13px !important; }
+[data-testid="stExpander"] details { background:$ROXO_ESCURO !important; border:1px solid $BORDA !important; border-radius:12px !important; }
+[data-testid="stExpander"] summary p { color:$TEXTO_2 !important; }
+.stDownloadButton button, .stButton button { background:$ROXO_PROFUNDO !important; border:1px solid $BORDA_FORTE !important;
+   color:$TEXTO !important; border-radius:9px !important; }
+.stDownloadButton button:hover, .stButton button:hover { border-color:$VIOLETA !important; color:$LILAS !important; }
+.modebar { background: transparent !important; }
 </style>
 """).substitute(
-    ELO_BLUE=ELO_BLUE, MAGENTA=MAGENTA, ROXO=ROXO, AMBAR=AMBAR, SUCESSO=SUCESSO, ERRO=ERRO,
-    GRAFITE=GRAFITE, CINZA_ESCURO=CINZA_ESCURO, CINZA_MEDIO=CINZA_MEDIO,
-    CINZA_CLARO=CINZA_CLARO, BRANCO_GELO=BRANCO_GELO,
+    PRETO_ARROXEADO=PRETO_ARROXEADO, CINZA_MUITO_ESCURO=CINZA_MUITO_ESCURO, ROXO_ESCURO=ROXO_ESCURO,
+    ROXO_PROFUNDO=ROXO_PROFUNDO, ROXO_AMEIXA=ROXO_AMEIXA, BORDA=BORDA, BORDA_FORTE=BORDA_FORTE,
+    TEXTO=TEXTO, TEXTO_2=TEXTO_2, TEXTO_3=TEXTO_3, VIOLETA=VIOLETA, ROSA=ROSA, LILAS=LILAS,
+    ROSA_CLARO=ROSA_CLARO, BOM=BOM, RUIM=RUIM,
 )
 st.html(CSS)
 
 
 # ======================================================================
-# HELPERS
+# FORMATAÇÃO E ÍCONES
 # ======================================================================
-def layout(fig, altura=400, titulo=None):
-    """Padrão visual do manual. As margens são mínimas de propósito: quem reserva
-    o espaço real dos rótulos e títulos de eixo é o automargin — sem ele, nomes de
-    canal e valores em R$ ficam cortados na borda esquerda."""
-    # o título pode vir no argumento OU já ter sido definido na figura; nunca
-    # sobrescrever com None, senão os títulos definidos antes de layout() somem
-    titulo = titulo or (fig.layout.title.text if fig.layout.title else None)
-    fig.update_layout(
-        height=altura, paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-        title=dict(text=titulo, font=dict(family="Space Grotesk", size=16, color=GRAFITE),
-                   x=0, xanchor="left") if titulo else None,
-        font=dict(family="Inter, Helvetica, Arial", size=12.5, color=CINZA_ESCURO),
-        margin=dict(l=12, r=30, t=52 if titulo else 24, b=24),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
-                    font=dict(size=12), bgcolor="rgba(0,0,0,0)"),
-        hoverlabel=dict(bgcolor=GRAFITE, font=dict(color="#FFFFFF", family="Inter", size=12.5)),
-        bargap=0.28,
-        separators=",.",  # 1.234,56 — padrão pt-BR nos eixos e tooltips
-    )
-    fig.update_xaxes(showgrid=False, linecolor=CINZA_CLARO, ticks="outside",
-                     tickcolor=CINZA_CLARO, tickfont=dict(size=12), automargin=True,
-                     title_font=dict(size=12.5, color=CINZA_MEDIO))
-    fig.update_yaxes(gridcolor="#F0F0F2", zerolinecolor=CINZA_CLARO, tickfont=dict(size=12),
-                     automargin=True, title_font=dict(size=12.5, color=CINZA_MEDIO))
-    # rótulos textposition="outside" extrapolam o eixo; sem isto são cortados
-    fig.update_traces(cliponaxis=False, selector=dict(type="bar"))
-    return fig
+MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+MES_EXTENSO = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto",
+               "setembro", "outubro", "novembro", "dezembro"]
 
 
-def brl(v, casas=0):
-    s = f"R$ {v:,.{casas}f}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def milhoes(v):
-    return f"R$ {v/1e6:,.2f} mi".replace(".", ",")
-
-
-def num(v, casas=2):
+def num(v, casas=1):
+    if v is None or pd.isna(v):
+        return "–"
     return f"{v:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def inteiro(v):
-    return f"{v:,.0f}".replace(",", ".")
+    return num(v, 0)
 
 
-def kpi(col, label, valor, sub, tom=""):
-    col.markdown(f"""<div class="kpi {tom}">
-      <div class="kpi-label">{label}</div>
-      <div class="kpi-value">{valor}</div>
-      <div class="kpi-sub">{sub}</div>
-    </div>""", unsafe_allow_html=True)
+def brl(v, casas=0):
+    return ("-" if v < 0 else "") + "R$ " + num(abs(v), casas)
 
 
-def mpct(g):
-    """Margem de contribuição % sobre receita líquida de um recorte."""
-    r = g["receita_liquida"].sum()
-    return np.nan if r == 0 else g["margem_contribuicao"].sum() / r * 100
+def brl_c(v):
+    """R$ compacto: 16,67 mi / 305,5 mil / 950."""
+    a, s = abs(v), "-" if v < 0 else ""
+    if a >= 1e6:
+        return f"{s}R$ {num(a / 1e6, 2)} mi"
+    if a >= 1e4:
+        return f"{s}R$ {num(a / 1e3, 1)} mil"
+    return f"{s}R$ {num(a, 0)}"
+
+
+def pct(v, casas=1):
+    return f"{num(v, casas)}%"
+
+
+def esc(s):
+    return html.escape(str(s))
+
+
+def mes_rotulo(ano_mes, extenso=False):
+    p = pd.Period(ano_mes, "M")
+    nomes = MES_EXTENSO if extenso else MES_ABREV
+    return f"{nomes[p.month - 1]}/{p.year % 100:02d}"
+
+
+def _svg(corpo):
+    return ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round">{corpo}</svg>')
+
+
+ICONES = {
+    "receita": _svg('<polyline points="3 17 9 11 13 15 21 7"></polyline><polyline points="14 7 21 7 21 14"></polyline>'),
+    "margem": _svg('<line x1="19" y1="5" x2="5" y2="19"></line><circle cx="6.5" cy="6.5" r="2.5"></circle>'
+                   '<circle cx="17.5" cy="17.5" r="2.5"></circle>'),
+    "realizada": _svg('<circle cx="12" cy="12" r="9"></circle><polyline points="8 12 11 15 16 9"></polyline>'),
+    "pedidos": _svg('<path d="M3 7l9-4 9 4-9 4-9-4z"></path><path d="M3 7v10l9 4 9-4V7"></path><path d="M12 11v10"></path>'),
+    "ticket": _svg('<rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line>'),
+    "devolucao": _svg('<path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline>'),
+    "insight": _svg('<path d="M9 18h6"></path><path d="M10 22h4"></path>'
+                    '<path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"></path>'),
+}
+
+
+def sparkline(valores, chave, cor=VIOLETA):
+    """Minigráfico SVG da tendência; o último ponto em destaque."""
+    v = [float(x) for x in valores if pd.notna(x)]
+    if len(v) < 2:
+        return ""
+    w, h, p = 200, 34, 4
+    lo, hi = min(v), max(v)
+    amp = (hi - lo) or 1
+    xs = [p + i * (w - 2 * p) / (len(v) - 1) for i in range(len(v))]
+    ys = [h - p - (x - lo) / amp * (h - 2 * p) for x in v]
+    pontos = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    area = f"M{xs[0]:.1f},{h} L" + " L".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys)) + f" L{xs[-1]:.1f},{h} Z"
+    gid = f"spark_{chave}"
+    return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none">'
+            f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0" stop-color="{cor}" stop-opacity="0.45"></stop>'
+            f'<stop offset="1" stop-color="{cor}" stop-opacity="0"></stop></linearGradient></defs>'
+            f'<path d="{area}" fill="url(#{gid})"></path>'
+            f'<polyline points="{pontos}" fill="none" stroke="{cor}" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>'
+            f'<circle cx="{xs[-1]:.1f}" cy="{ys[-1]:.1f}" r="3" fill="{ROSA}"></circle></svg>')
+
+
+# ======================================================================
+# MÉTRICAS
+# ======================================================================
+SOMAS = dict(
+    receita=("receita_liquida", "sum"), receita_bruta=("receita_bruta", "sum"),
+    margem=("margem_contribuicao", "sum"), cmv=("custo_produto", "sum"),
+    frete=("custo_frete", "sum"), desconto=("desconto_reais", "sum"),
+    pedidos=("order_id", "count"), itens=("quantidade", "sum"), devolvidos=("devolvido", "sum"),
+    margem_real=("margem_realizada", "sum"), receita_real=("receita_realizada", "sum"),
+    negativos=("margem_negativa", "sum"), prazo_soma=("tempo_entrega_real", "sum"),
+)
+
+
+def _div(a, b):
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    return np.divide(a, b, out=np.full_like(a, np.nan), where=b != 0)
+
+
+def agregar(d, por=None):
+    """Somas por grupo e razões derivadas das somas (nunca média de percentuais)."""
+    if por is None:
+        t = d.assign(_todos=1).groupby("_todos").agg(**SOMAS)
+    else:
+        t = d.groupby(por, observed=True).agg(**SOMAS)
+    t["margem_pct"] = _div(t["margem"], t["receita"]) * 100
+    t["margem_real_pct"] = _div(t["margem_real"], t["receita_real"]) * 100
+    t["ticket"] = _div(t["receita"], t["pedidos"])
+    t["itens_pedido"] = _div(t["itens"], t["pedidos"])
+    t["desconto_pct"] = _div(t["desconto"], t["receita_bruta"]) * 100
+    t["frete_pct"] = _div(t["frete"], t["receita"]) * 100
+    t["cmv_pct"] = _div(t["cmv"], t["receita"]) * 100
+    t["taxa_dev"] = _div(t["devolvidos"], t["pedidos"]) * 100
+    t["prazo"] = _div(t["prazo_soma"], t["pedidos"])
+    return t
+
+
+METRICAS = {
+    "receita": dict(nome="Receita líquida", tipo="brl", melhor=1),
+    "margem": dict(nome="Margem de contribuição (R$)", tipo="brl", melhor=1),
+    "margem_pct": dict(nome="Margem de contribuição (%)", tipo="pct", melhor=1),
+    "margem_real_pct": dict(nome="Margem realizada (%)", tipo="pct", melhor=1),
+    "pedidos": dict(nome="Pedidos", tipo="int", melhor=1),
+    "ticket": dict(nome="Ticket médio", tipo="brl2", melhor=1),
+    "itens_pedido": dict(nome="Itens por pedido", tipo="dec", melhor=0),
+    "desconto_pct": dict(nome="Desconto (% da receita bruta)", tipo="pct", melhor=-1),
+    "desconto": dict(nome="Desconto concedido (R$)", tipo="brl", melhor=-1),
+    "frete_pct": dict(nome="Frete (% da receita)", tipo="pct", melhor=-1),
+    "frete": dict(nome="Frete pago (R$)", tipo="brl", melhor=-1),
+    "cmv_pct": dict(nome="CMV (% da receita)", tipo="pct", melhor=-1),
+    "taxa_dev": dict(nome="Taxa de devolução (%)", tipo="pct", melhor=-1),
+    "prazo": dict(nome="Prazo médio de entrega (dias)", tipo="dec", melhor=-1),
+    "negativos": dict(nome="Pedidos com margem negativa", tipo="int", melhor=-1),
+}
+ADITIVAS = {"receita", "margem", "pedidos", "desconto", "frete", "negativos"}
+
+
+def fmt(v, tipo):
+    return {"brl": brl_c, "brl2": lambda x: brl(x, 2), "pct": pct, "int": inteiro,
+            "dec": lambda x: num(x, 2)}[tipo](v)
+
+
+def hover_num(tipo, eixo):
+    return {"brl": f"R$ %{{{eixo}:,.0f}}", "brl2": f"R$ %{{{eixo}:,.2f}}", "pct": f"%{{{eixo}:.1f}}%",
+            "int": f"%{{{eixo}:,.0f}}", "dec": f"%{{{eixo}:.2f}}"}[tipo]
+
+
+def eixo_fmt(tipo):
+    if tipo in ("brl", "brl2"):
+        return dict(tickprefix="R$ ", tickformat="~s")
+    if tipo == "pct":
+        return dict(ticksuffix="%", tickformat=".0f")
+    if tipo == "int":
+        return dict(tickformat="~s")
+    return dict(tickformat=".1f")
+
+
+# ======================================================================
+# GRÁFICOS: padrão único
+# ======================================================================
+def estilo(fig, altura=H_M, horizontal=False, legenda=False):
+    fig.update_layout(
+        height=altura, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, Helvetica, Arial, sans-serif", size=12, color=TEXTO_2),
+        margin=dict(l=4, r=24, t=34 if legenda else 10, b=6),
+        showlegend=legenda,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, xanchor="left",
+                    font=dict(size=12, color=TEXTO_2), bgcolor="rgba(0,0,0,0)", title=None),
+        hoverlabel=dict(bgcolor=ROXO_AMEIXA, bordercolor=BORDA_FORTE,
+                        font=dict(color=TEXTO, size=12, family="Inter, Helvetica, Arial")),
+        separators=",.", bargap=0.38, barcornerradius=6, title=None,
+    )
+    grade = dict(showgrid=True, gridcolor=GRADE, gridwidth=1, zeroline=False)
+    sem_grade = dict(showgrid=False, zeroline=False)
+    comum = dict(automargin=True, tickfont=dict(size=11, color=TEXTO_3),
+                 title_font=dict(size=12, color=TEXTO_3), showline=False, ticks="")
+    fig.update_xaxes(**comum, **(grade if horizontal else sem_grade))
+    fig.update_yaxes(**comum, **(sem_grade if horizontal else grade))
+    if horizontal:
+        fig.update_yaxes(tickfont=dict(size=12, color=TEXTO_2))
+    fig.update_traces(cliponaxis=False, selector=dict(type="bar"))
+    fig.update_traces(cliponaxis=False, selector=dict(type="waterfall"))
+    return fig
+
+
+# Sem a barra de ícones do Plotly: ela cobria rótulos das barras do topo. Tela cheia continua
+# disponível pelo menu do próprio Streamlit ao passar o mouse no gráfico.
+CONFIG_PLOTLY = {"displaylogo": False, "displayModeBar": False}
+
+
+def plot(fig, key=None, selecionavel=False):
+    return st.plotly_chart(fig, theme=None, width="stretch", config=CONFIG_PLOTLY, key=key,
+                           on_select="rerun" if selecionavel else "ignore")
+
+
+def card(chave):
+    return st.container(key=f"card_{chave}")
+
+
+def cabecalho(titulo, sub=None):
+    st.markdown(f'<div class="card-titulo">{esc(titulo)}</div>'
+                + (f'<div class="card-sub">{esc(sub)}</div>' if sub else ""), unsafe_allow_html=True)
+
+
+def insight(texto, acao=None):
+    if not texto:
+        return
+    st.markdown(f'<div class="insight"><div class="rot">{ICONES["insight"]}Insight</div>'
+                f'<div class="txt">{esc(texto)}</div>'
+                + (f'<div class="acao"><b>Ação recomendada:</b> {esc(acao)}</div>' if acao else "")
+                + '</div>', unsafe_allow_html=True)
+
+
+def nota(texto):
+    st.markdown(f'<div class="nota">{esc(texto)}</div>', unsafe_allow_html=True)
+
+
+def csv_bytes(d):
+    return d.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+
+
+def pontos_selecionados(evento):
+    try:
+        return list(evento["selection"]["points"])
+    except (KeyError, TypeError):
+        return []
+
+
+def barras_h(t, col, tipo, foco=None, altura=None, rotulos=True, customdata=None):
+    """Barras horizontais de série única, maior valor no topo, foco opcional em rosa."""
+    t = t.sort_values(col)
+    fig = go.Figure(go.Bar(
+        y=t.index.astype(str), x=t[col], orientation="h",
+        marker_color=[COR_FOCO if foco is not None and i in foco else COR_BASE for i in t.index],
+        text=[fmt(v, tipo) for v in t[col]] if rotulos else None, textposition="outside",
+        textfont=dict(size=11, color=TEXTO_2),
+        customdata=customdata if customdata is not None else t.index.astype(str),
+        hovertemplate="<b>%{y}</b><br>" + hover_num(tipo, "x") + "<extra></extra>"))
+    maximo = np.nanmax(t[col].values) if len(t) else 1
+    fig.update_xaxes(range=[0, maximo * 1.22 if maximo > 0 else 1], **eixo_fmt(tipo))
+    return estilo(fig, altura or max(H_P - 40, 34 * len(t) + 40), horizontal=True)
+
+
+def colunas(x, y, tipo, foco=None, altura=H_P, rotulos=True, hover_extra=None):
+    """Colunas de série única em ordem natural (faixas, meses)."""
+    fig = go.Figure(go.Bar(
+        x=list(x), y=list(y),
+        marker_color=[COR_FOCO if foco is not None and xi in foco else COR_BASE for xi in x],
+        text=[fmt(v, tipo) for v in y] if rotulos else None, textposition="outside",
+        textfont=dict(size=11, color=TEXTO_2),
+        customdata=hover_extra,
+        hovertemplate="<b>%{x}</b><br>" + hover_num(tipo, "y")
+        + ("<br>%{customdata}" if hover_extra is not None else "") + "<extra></extra>"))
+    maximo = np.nanmax(list(y)) if len(y) else 1
+    fig.update_yaxes(range=[0, maximo * 1.2 if maximo > 0 else 1], **eixo_fmt(tipo))
+    return estilo(fig, altura)
 
 
 # ======================================================================
 # DADOS
 # ======================================================================
-# O CSV perde o tipo Categorical das faixas: elas voltam como texto e o groupby
-# passa a ordenar em ordem alfabética ("<100" cairia entre "500-1000" e ">1000").
-# A ordem é a mesma definida nos pd.cut de tratamento_base_V@.py.
+def rotular_celulas(fig, z, xs, ys, formato):
+    """Rótulo por célula de heatmap com a cor escolhida pelo fundo: tinta escura nas células
+    claras, branca nas escuras (o Plotly usa uma cor só e some nas células claras)."""
+    zz = np.asarray(z, dtype=float)
+    lo, hi = np.nanmin(zz), np.nanmax(zz)
+    for i, y in enumerate(ys):
+        for j, x in enumerate(xs):
+            v = zz[i, j]
+            if np.isnan(v):
+                continue
+            claro = (v - lo) / ((hi - lo) or 1) > 0.6
+            fig.add_annotation(x=x, y=y, text=formato(v), showarrow=False,
+                               font=dict(size=11, color=PRETO_ARROXEADO if claro else "#FFFFFF"))
+    return fig
+
+
 ORDEM_TICKET = ["<100", "100-200", "200-250", "250-300", "300-500", "500-1000", ">1000"]
+ROTULO_TICKET = {"<100": "Até R$ 100", "100-200": "R$ 100–200", "200-250": "R$ 200–250",
+                 "250-300": "R$ 250–300", "300-500": "R$ 300–500", "500-1000": "R$ 500–1.000",
+                 ">1000": "Acima de R$ 1.000"}
 ORDEM_DESCONTO = ["0%", "0-10%", "10-20%", "20-25%", "25-30%", ">30%"]
+ROTULO_DESCONTO = {"0%": "Sem desconto", "0-10%": "Até 10%", "10-20%": "10–20%", "20-25%": "20–25%",
+                   "25-30%": "25–30%", ">30%": "Acima de 30%"}
+ORDEM_PRAZO = ["Até 4 dias", "5 a 7 dias", "8 a 10 dias", "11 a 13 dias", "14 dias ou mais"]
+OPERACIONAIS = ["Produto com defeito", "Atraso na entrega"]
 
 
 @st.cache_data
 def carregar():
-    df = pd.read_csv("vendas_tratada.csv", parse_dates=["data_pedido"])
-    cal = pd.read_csv("calendario_sazonal.csv", index_col=0)
-    df["mes_nome"] = df["data_pedido"].dt.strftime("%b/%y")
-    df["faixa_ticket"] = pd.Categorical(df["faixa_ticket"], ORDEM_TICKET, ordered=True)
-    df["faixa_desconto"] = pd.Categorical(df["faixa_desconto"], ORDEM_DESCONTO, ordered=True)
-    return df, cal
+    # O CSV perde o tipo Categorical: sem isto as faixas voltam em ordem alfabética.
+    d = pd.read_csv("vendas_tratada.csv", parse_dates=["data_pedido"])
+    d["dia"] = d["data_pedido"].dt.normalize()
+    d["faixa_ticket"] = pd.Categorical(d["faixa_ticket"].map(ROTULO_TICKET),
+                                       [ROTULO_TICKET[k] for k in ORDEM_TICKET], ordered=True)
+    d["faixa_desconto"] = pd.Categorical(d["faixa_desconto"].map(ROTULO_DESCONTO),
+                                         [ROTULO_DESCONTO[k] for k in ORDEM_DESCONTO], ordered=True)
+    d["faixa_prazo"] = pd.cut(d["tempo_entrega_real"], [0, 4, 7, 10, 13, 99], labels=ORDEM_PRAZO)
+    d["mes_rotulo"] = pd.Categorical(
+        d["ano_mes"].map(mes_rotulo), [mes_rotulo(m) for m in sorted(d["ano_mes"].unique())], ordered=True)
+    return d
 
 
-BASE, cal = carregar()
+BASE = carregar()
+DATA_MIN, DATA_MAX = BASE["dia"].min(), BASE["dia"].max()
+
 
 # ======================================================================
-# SIDEBAR — FILTROS
+# CABEÇALHO E FILTROS
 # ======================================================================
-with st.sidebar:
-    st.markdown("## ◆ Filtros")
-    st.caption("Recortam todos os indicadores e gráficos do cockpit.")
+st.markdown(
+    '<div class="topo"><div class="marca"><div class="logo">V</div><div>'
+    '<div class="titulo">Vértice Retail · <span>Rentabilidade comercial</span></div>'
+    '<div class="sub">Receita, margem, desconto, frete e devoluções dos pedidos aprovados</div></div></div>'
+    f'<div class="meta"><span class="pilula"><span class="ponto"></span>Dados até {DATA_MAX:%d/%m/%Y}</span>'
+    f'<span class="pilula">Desde {DATA_MIN:%d/%m/%Y}</span>'
+    f'<span class="pilula">{inteiro(len(BASE))} pedidos aprovados</span></div></div>',
+    unsafe_allow_html=True)
 
-    canais_sel = st.multiselect("Canal", sorted(BASE["canal"].unique()),
-                                default=sorted(BASE["canal"].unique()))
-    cats_sel = st.multiselect("Categoria", sorted(BASE["categoria"].unique()),
-                              default=sorted(BASE["categoria"].unique()))
-    pgto_sel = st.multiselect("Método de pagamento", sorted(BASE["metodo_pagamento"].unique()),
-                              default=sorted(BASE["metodo_pagamento"].unique()))
-    incluir_dev = st.checkbox("Incluir pedidos devolvidos", value=True)
+PRESETS = ["Todo o período", "Últimos 30 dias", "Últimos 90 dias", "Ano de 2023", "Personalizado"]
+st.session_state.setdefault("versao_drill", 0)
+CHAVE_DRILL = f"drill_canal_{st.session_state['versao_drill']}"
 
-    st.markdown("---")
-    st.caption("Base: pedidos aprovados · jan/2023 a jan/2024 · "
-               "margem de contribuição = receita líquida − CMV − frete.")
+with card("filtros"):
+    f = st.columns([1.15, 1.35, 1.5, 1.3, 1.3, 0.95], gap="small", vertical_alignment="bottom")
+    preset = f[0].selectbox("Período", PRESETS, key="f_periodo")
+    if preset == "Personalizado":
+        faixa = f[1].date_input("Datas", value=(DATA_MIN.date(), DATA_MAX.date()), min_value=DATA_MIN.date(),
+                                max_value=DATA_MAX.date(), format="DD/MM/YYYY", key="f_datas")
+        ini = pd.Timestamp(faixa[0])
+        fim = pd.Timestamp(faixa[1]) if len(faixa) > 1 else ini
+    else:
+        ini, fim = {
+            "Todo o período": (DATA_MIN, DATA_MAX),
+            "Últimos 30 dias": (DATA_MAX - pd.Timedelta(days=29), DATA_MAX),
+            "Últimos 90 dias": (DATA_MAX - pd.Timedelta(days=89), DATA_MAX),
+            "Ano de 2023": (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-12-31")),
+        }[preset]
+        f[1].text_input("Datas", value=f"{ini:%d/%m/%Y} a {fim:%d/%m/%Y}", disabled=True, key="f_datas_txt")
+    canais_sel = f[2].multiselect("Canal", list(COR_CANAL), placeholder="Todos", key="f_canal")
+    cats_sel = f[3].multiselect("Categoria", list(COR_CATEGORIA), placeholder="Todas", key="f_cat")
+    pgto_sel = f[4].multiselect("Pagamento", list(COR_PAGAMENTO), placeholder="Todos", key="f_pgto")
+    incluir_dev = f[5].toggle("Incluir devolvidos", value=True, key="f_dev")
 
-df = BASE[
-    BASE["canal"].isin(canais_sel or BASE["canal"].unique())
-    & BASE["categoria"].isin(cats_sel or BASE["categoria"].unique())
-    & BASE["metodo_pagamento"].isin(pgto_sel or BASE["metodo_pagamento"].unique())
-].copy()
-if not incluir_dev:
-    df = df[~df["devolvido"]]
+# Seleção feita no gráfico "Margem por canal" (filtro cruzado, como no Power BI).
+drill_canal = None
+_pts = pontos_selecionados(st.session_state.get(CHAVE_DRILL))
+if _pts:
+    _cd = _pts[0].get("customdata")
+    drill_canal = (_cd[0] if isinstance(_cd, (list, tuple)) else _cd) or _pts[0].get("y")
+
+
+def recortar(d, de, ate, com_drill=True):
+    m = (d["dia"] >= de) & (d["dia"] <= ate)
+    if canais_sel:
+        m &= d["canal"].isin(canais_sel)
+    if cats_sel:
+        m &= d["categoria"].isin(cats_sel)
+    if pgto_sel:
+        m &= d["metodo_pagamento"].isin(pgto_sel)
+    if not incluir_dev:
+        m &= ~d["devolvido"]
+    if com_drill and drill_canal:
+        m &= d["canal"] == drill_canal
+    return d[m]
+
+
+df = recortar(BASE, ini, fim)
+df_sem_drill = recortar(BASE, ini, fim, com_drill=False)
+
+# Período anterior de mesma duração, só quando cabe inteiro dentro da base.
+dur = fim - ini + pd.Timedelta(days=1)
+p_ini, p_fim = ini - dur, ini - pd.Timedelta(days=1)
+comparavel = preset in ("Últimos 30 dias", "Últimos 90 dias", "Personalizado") and p_ini >= DATA_MIN
+df_ant = recortar(BASE, p_ini, p_fim) if comparavel else None
+dias = (fim - ini).days + 1
+
+if drill_canal:
+    c1, c2 = st.columns([6, 1], vertical_alignment="center")
+    c1.markdown(f'<span class="chip">Filtro do gráfico: canal <b>{esc(drill_canal)}</b></span>',
+                unsafe_allow_html=True)
+    c2.button("Limpar seleção", key="limpar_drill", width="stretch",
+              on_click=lambda: st.session_state.update(versao_drill=st.session_state["versao_drill"] + 1))
 
 if df.empty:
-    st.warning("Nenhum pedido no recorte selecionado. Ajuste os filtros na barra lateral.")
+    st.warning("Nenhum pedido no recorte selecionado. Ajuste os filtros.")
     st.stop()
 
-# ======================================================================
-# INDICADORES
-# ======================================================================
-R = df["receita_liquida"].sum()
-RB = df["receita_bruta"].sum()
-M = df["margem_contribuicao"].sum()
-CMV = df["custo_produto"].sum()
-DESC = df["desconto_reais"].sum()
-FRETE = df["custo_frete"].sum()
-DESC25 = df.loc[df["desconto_acima_25"], "desconto_reais"].sum()
-FRETE_MK = df.loc[df["mk_elegivel_nao_subsidiado"], "custo_frete"].sum()
-CONCESSOES = DESC + FRETE
-N = len(df)
-N_NEG = int(df["margem_negativa"].sum())
-TX_DEV = df["devolvido"].mean() * 100
-PERDA_DEV = df.loc[df["devolvido"], ["custo_produto", "custo_frete"]].sum().sum()
-M_REAL = df["margem_realizada"].sum()
-R_REAL = df["receita_realizada"].sum()
-MARGEM_REAL_PCT = M_REAL / R_REAL * 100 if R_REAL else np.nan
-# Cenário-base: 100% do frete MK não subsidiado + recuperação de 20% do desconto
-# acima de 25% (premissa conservadora — ajustável na aba Simulador).
-RECUP_DESC_BASE = 0.20
-OPORTUNIDADE = FRETE_MK + DESC25 * RECUP_DESC_BASE
+K = agregar(df).iloc[0]
+KA = agregar(df_ant).iloc[0] if df_ant is not None and len(df_ant) else None
+SERIE_KPI = agregar(df.assign(_p=df["dia"].dt.to_period("W" if dias <= 120 else "M").dt.start_time), "_p")
+
 
 # ======================================================================
-# HERO
+# BIG NUMBERS
 # ======================================================================
-st.markdown(f"""
-<div class="hero">
-  <span class="tag">AI CONSULTING LAB</span><span class="tag">BOOTCAMP ELOGROUP 2026</span>
-  <h1>Vértice Retail — onde a margem se perde</h1>
-  <p>{inteiro(N)} pedidos aprovados &nbsp;·&nbsp; {milhoes(R)} de receita líquida &nbsp;·&nbsp;
-     {df['customer_id'].nunique()} clientes &nbsp;·&nbsp; jan/2023 a jan/2024</p>
-</div>
-""", unsafe_allow_html=True)
+def delta(chave):
+    if KA is None:
+        return ""
+    atual, ant, info = K[chave], KA[chave], METRICAS[chave]
+    if pd.isna(atual) or pd.isna(ant) or (info["tipo"] != "pct" and ant == 0):
+        return ""
+    if info["tipo"] == "pct":
+        dif, txt = atual - ant, f"{num(abs(atual - ant))} p.p."
+    else:
+        dif = (atual / ant - 1) * 100
+        txt = pct(abs(dif))
+    if abs(dif) < 0.05:
+        return '<span class="delta neutro" title="vs período anterior">estável</span>'
+    classe = "bom" if (dif > 0) == (info["melhor"] > 0) else "ruim"
+    seta = "▲" if dif > 0 else "▼"
+    return f'<span class="delta {classe}" title="vs período anterior">{seta} {txt}</span>'
 
-k1, k2, k3, k4 = st.columns(4, gap="medium")
-kpi(k1, "Margem de contribuição", f"{num(M/R*100)}%",
-    f"<b>{brl(M)}</b> sobre {brl(R)}", "ok" if M/R*100 >= 50 else "warn")
-kpi(k2, "Margem realizada (líq. devolução)", f"{num(MARGEM_REAL_PCT)}%",
-    f"−{num(M/R*100 - MARGEM_REAL_PCT)} p.p. vs. contábil · devoluções custam <b>{brl(PERDA_DEV)}</b>",
-    "danger")
-kpi(k3, "Concessões ao cliente", brl(CONCESSOES),
-    f"<b>{num(CONCESSOES/RB*100)}%</b> da receita bruta — desconto ({brl(DESC)}) + frete ({brl(FRETE)})",
-    "danger")
-kpi(k4, "Oportunidade priorizada", brl(OPORTUNIDADE),
-    f"+<b>{num(OPORTUNIDADE/R*100)} p.p.</b> de margem — frete MK + 20% do desconto &gt;25% "
-    f"(premissa; ajuste na aba Simulador)", "ok")
 
-st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+def kpi(col, rotulo, valor, sub, chave, definicao, icone):
+    col.markdown(
+        f'<div class="kpi" title="{esc(definicao)}"><div class="kpi-topo"><div class="kpi-rotulo">{esc(rotulo)}</div>'
+        f'<div class="icone">{ICONES[icone]}</div></div><div class="kpi-valor">{valor}</div>'
+        f'<div class="kpi-linha">{delta(chave)}<span>{sub}</span></div>'
+        f'{sparkline(SERIE_KPI[chave].values, chave)}</div>', unsafe_allow_html=True)
 
-t1, t2, t3, t4, t5, t6 = st.tabs([
-    "Visão executiva", "Canais & Categorias", "Desconto", "Frete",
-    "Devoluções & Entrega", "Simulador"])
 
-# ======================================================================
-# ABA 1 — VISÃO EXECUTIVA
-# ======================================================================
-with t1:
-    cA, cB = st.columns([5, 4], gap="large")
+k = st.columns(6, gap="small")
+kpi(k[0], "Receita líquida", brl_c(K.receita), f"{brl_c(K.receita_bruta)} bruta", "receita",
+    "Receita bruta menos descontos", "receita")
+kpi(k[1], "Margem de contribuição", pct(K.margem_pct, 2), f"{brl_c(K.margem)}", "margem_pct",
+    "Receita líquida menos CMV e frete, sobre a receita líquida", "margem")
+kpi(k[2], "Margem realizada", pct(K.margem_real_pct, 2), "após devoluções", "margem_real_pct",
+    "Pedido devolvido perde a receita e mantém CMV e frete (premissa do tratamento)", "realizada")
+kpi(k[3], "Pedidos", inteiro(K.pedidos), f"{inteiro(K.itens)} itens", "pedidos", "Pedidos aprovados", "pedidos")
+kpi(k[4], "Ticket médio", brl(K.ticket, 2), f"{num(K.itens_pedido, 2)} itens/pedido", "ticket",
+    "Receita líquida por pedido", "ticket")
+kpi(k[5], "Taxa de devolução", pct(K.taxa_dev), f"{inteiro(K.devolvidos)} pedidos", "taxa_dev",
+    "Pedidos devolvidos sobre pedidos aprovados", "devolucao")
+nota(("Variações comparadas a " + f"{p_ini:%d/%m/%Y}–{p_fim:%d/%m/%Y}, período de mesma duração. " if comparavel else "")
+     + ("Minigráficos: evolução semanal no período." if dias <= 120 else "Minigráficos: evolução mensal no período."))
 
-    with cA:
-        st.markdown("## Ponte da margem — do bruto ao contábil")
-        st.markdown('<p class="msg">Cada real de receita bruta chega à margem depois de três '
-                    'deduções. Desconto e frete são decisões comerciais — e é onde a Vértice '
-                    'tem alavanca.</p>', unsafe_allow_html=True)
-        w = go.Figure(go.Waterfall(
-            orientation="v",
-            measure=["absolute", "relative", "relative", "relative", "total"],
-            x=["Receita bruta", "− Desconto", "− CMV", "− Frete", "Margem de contribuição"],
-            y=[RB, -DESC, -CMV, -FRETE, M],
-            text=[brl(RB), brl(-DESC), brl(-CMV), brl(-FRETE), brl(M)],
-            textposition="outside", textfont=dict(size=12, color=GRAFITE),
-            connector=dict(line=dict(color=CINZA_CLARO)),
-            increasing=dict(marker=dict(color=SUCESSO)),
-            decreasing=dict(marker=dict(color=MAGENTA)),
-            totals=dict(marker=dict(color=ELO_BLUE)),
-            hovertemplate="%{x}: %{text}<extra></extra>"))
-        w.update_layout(showlegend=False,
-                        yaxis=dict(tickprefix="R$ ", tickformat="~s", title=None))
-        st.plotly_chart(layout(w, 420), theme=None, width="stretch")
-        st.markdown(f'<p class="nota">Desconto e frete somam <b>{brl(CONCESSOES)}</b> — '
-                    f'{num(CONCESSOES/RB*100)}% da receita bruta. O CMV '
-                    f'({num(CMV/R*100)}% da receita líquida) é estável e fora de governança '
-                    f'comercial de curto prazo.</p>', unsafe_allow_html=True)
-
-    with cB:
-        st.markdown("## Margem realizada ao longo do ano")
-        st.markdown('<p class="msg">A margem contábil é plana. A realizada respira com as '
-                    'devoluções e mergulha em novembro.</p>', unsafe_allow_html=True)
-        mm = (df.groupby("ano_mes")
-              .apply(lambda g: pd.Series({
-                  "contabil": mpct(g),
-                  "realizada": g["margem_realizada"].sum() / g["receita_realizada"].sum() * 100
-                  if g["receita_realizada"].sum() else np.nan,
-                  "receita": g["receita_liquida"].sum(),
-              }), include_groups=False).reset_index())
-        mm["rot"] = pd.to_datetime(mm["ano_mes"] + "-01").dt.strftime("%b/%y")
-        ft = go.Figure()
-        ft.add_bar(x=mm["rot"], y=mm["receita"], name="Receita líquida", yaxis="y2",
-                   marker_color=CINZA_CLARO, hovertemplate="Receita: %{y:,.0f}<extra></extra>")
-        ft.add_scatter(x=mm["rot"], y=mm["contabil"], name="Margem contábil (%)",
-                       mode="lines+markers", line=dict(color=ELO_BLUE, width=3, dash="dot"),
-                       marker=dict(size=7), hovertemplate="Contábil: %{y:.2f}%<extra></extra>")
-        ft.add_scatter(x=mm["rot"], y=mm["realizada"], name="Margem realizada (%)",
-                       mode="lines+markers", line=dict(color=MAGENTA, width=3),
-                       marker=dict(size=8), hovertemplate="Realizada: %{y:.2f}%<extra></extra>")
-        ft.update_layout(
-            yaxis=dict(title="Margem (%)", range=[30, 62]),
-            yaxis2=dict(title=None, overlaying="y", side="right",
-                        showgrid=False, tickprefix="R$ ", tickformat="~s"))
-        st.plotly_chart(layout(ft, 420), theme=None, width="stretch")
-        st.markdown('<p class="nota">A distância entre as duas linhas é o custo das devoluções: '
-                    f'<b>{brl(PERDA_DEV)}</b> em CMV e frete que não voltam.</p>',
-                    unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("## A diferença de margem entre canais é explicada pelo frete")
-    st.markdown('<p class="msg">Custo do produto e desconto são equivalentes em todos os canais. '
-                'Apenas o frete varia — e concentra-se no Marketplace.</p>',
-                unsafe_allow_html=True)
-
-    comp = (df.groupby("canal")
-            .apply(lambda g: pd.Series({
-                "CMV": g["custo_produto"].sum() / g["receita_liquida"].sum() * 100,
-                "Frete": g["custo_frete"].sum() / g["receita_liquida"].sum() * 100,
-                "Desconto": g["desconto_reais"].sum() / g["receita_bruta"].sum() * 100,
-                "Margem": mpct(g),
-            }), include_groups=False)
-            .sort_values("Margem"))
-
-    cc1, cc2 = st.columns([3, 2], gap="large")
-    with cc1:
-        fig = go.Figure()
-        fig.add_bar(y=comp.index, x=comp["CMV"], name="Custo do produto", orientation="h",
-                    marker_color=CINZA_MEDIO, hovertemplate="CMV: %{x:.2f}%<extra></extra>")
-        fig.add_bar(y=comp.index, x=comp["Frete"], name="Frete (Marketplace em magenta)",
-                    orientation="h",
-                    marker_color=[MAGENTA if c == "Marketplace" else CIANO for c in comp.index],
-                    text=[f"{v:.2f}%" for v in comp["Frete"]], textposition="outside",
-                    textfont=dict(size=11, color=GRAFITE),
-                    hovertemplate="Frete: %{x:.2f}%<extra></extra>")
-        fig.add_bar(y=comp.index, x=comp["Desconto"], name="Desconto", orientation="h",
-                    marker_color=ROXO, hovertemplate="Desconto: %{x:.2f}%<extra></extra>")
-        fig.update_layout(barmode="stack", xaxis_title="% da receita líquida")
-        st.plotly_chart(layout(fig, 420), theme=None, width="stretch")
-    with cc2:
-        mg = comp["Margem"].sort_values()
-        f2 = go.Figure(go.Bar(
-            y=mg.index, x=mg.values, orientation="h",
-            marker_color=[MAGENTA if c == "Marketplace" else ELO_BLUE for c in mg.index],
-            text=[f"{v:.2f}%" for v in mg.values], textposition="outside",
-            textfont=dict(size=11), hovertemplate="%{y}: %{x:.2f}%<extra></extra>"))
-        f2.update_layout(xaxis_title="Margem de contribuição (%)", xaxis_range=[0, 70],
-                         showlegend=False, title=dict(text="Margem realizada por canal"))
-        st.plotly_chart(layout(f2, 420), theme=None, width="stretch")
-    outros = comp.drop("Marketplace", errors="ignore")["Margem"].mean()
-    if "Marketplace" in comp.index:
-        st.markdown(f'<p class="nota">O Marketplace opera <b>{num(outros - comp.loc["Marketplace","Margem"])} '
-                    f'pontos</b> abaixo da média dos demais canais — diferença quase toda no frete.</p>',
-                    unsafe_allow_html=True)
 
 # ======================================================================
-# ABA 2 — CANAIS & CATEGORIAS
+# INSIGHTS E RECOMENDAÇÕES (calculados sobre o recorte)
 # ======================================================================
-with t2:
-    st.markdown("## Mapa de rentabilidade dos canais")
-    st.markdown('<p class="msg">Tamanho da bolha = receita líquida. Quanto mais à direita e '
-                'mais abaixo, melhor: alta margem e baixo peso de frete.</p>',
-                unsafe_allow_html=True)
+def gerar_insights(d):
+    recs = []
+    total = agregar(d).iloc[0]
+    mk, fora = d[d["canal"] == "Marketplace"], d[d["canal"] != "Marketplace"]
 
-    ch = (df.groupby("canal")
-          .apply(lambda g: pd.Series({
-              "margem": mpct(g),
-              "frete_pct": g["custo_frete"].sum() / g["receita_liquida"].sum() * 100,
-              "receita": g["receita_liquida"].sum(),
-              "pedidos": len(g),
-              "desconto_pct": g["desconto_reais"].sum() / g["receita_bruta"].sum() * 100,
-              "dev": g["devolvido"].mean() * 100,
-          }), include_groups=False).reset_index())
-
-    bub = go.Figure()
-    for _, row in ch.iterrows():
-        bub.add_scatter(
-            # legenda em vez de rótulo no ponto: seis dos sete canais ficam a
-            # menos de 1,5 p.p. um do outro e os textos se sobrepunham
-            x=[row["margem"]], y=[row["frete_pct"]], mode="markers", name=row["canal"],
-            marker=dict(size=row["receita"] / ch["receita"].max() * 48 + 14,
-                        color=COR_CANAL.get(row["canal"], ELO_BLUE),
-                        line=dict(color="#FFFFFF", width=2), opacity=0.85),
-            hovertemplate=(f"<b>{row['canal']}</b><br>Margem: {row['margem']:.2f}%<br>"
-                           f"Frete: {row['frete_pct']:.2f}%<br>Receita: {brl(row['receita'])}<br>"
-                           f"Pedidos: {inteiro(row['pedidos'])}<br>Devolução: {row['dev']:.1f}%<extra></extra>"),
-            cliponaxis=False, showlegend=True)
-    px_, py_ = (ch["margem"].max() - ch["margem"].min()) * 0.12 + 0.25, ch["frete_pct"].max() * 0.18 + 0.25
-    bub.update_layout(xaxis_title="Margem de contribuição (%)",
-                      yaxis_title="Frete (% da receita líquida)",
-                      xaxis=dict(range=[ch["margem"].min() - px_, ch["margem"].max() + px_]),
-                      yaxis=dict(range=[ch["frete_pct"].max() + py_, -py_ * 0.6]))
-    st.plotly_chart(layout(bub, 440), theme=None, width="stretch")
-
-    st.markdown("---")
-    g1, g2 = st.columns(2, gap="large")
-    with g1:
-        st.markdown("### Receita e margem por categoria")
-        catg = (df.groupby("categoria")
-                .apply(lambda g: pd.Series({
-                    "receita": g["receita_liquida"].sum(), "margem": mpct(g),
-                }), include_groups=False).sort_values("receita", ascending=True))
-        fc = go.Figure()
-        fc.add_bar(y=catg.index, x=catg["receita"], orientation="h",
-                   marker_color=[COR_CATEGORIA.get(c, ELO_BLUE) for c in catg.index],
-                   text=[f"{milhoes(v)} · {m:.1f}%" for v, m in zip(catg["receita"], catg["margem"])],
-                   textposition="outside", textfont=dict(size=11),
-                   hovertemplate="%{y}: %{x:,.0f}<extra></extra>")
-        fc.update_layout(xaxis_title="Receita líquida", showlegend=False,
-                         xaxis=dict(tickprefix="R$ ", tickformat="~s"),
-                         xaxis_range=[0, catg["receita"].max() * 1.25])
-        st.plotly_chart(layout(fc, 320), theme=None, width="stretch")
-
-    with g2:
-        st.markdown("### Margem por canal × categoria")
-        piv = df.pivot_table(index="canal", columns="categoria",
-                             values="margem_contribuicao", aggfunc="sum")
-        pivr = df.pivot_table(index="canal", columns="categoria",
-                              values="receita_liquida", aggfunc="sum")
-        mat = (piv / pivr * 100).round(1)
-        hm = go.Figure(go.Heatmap(
-            z=mat.values, x=mat.columns, y=mat.index,
-            colorscale=[[0, ERRO], [0.5, AMBAR], [1, ELO_BLUE]],
-            text=mat.values, texttemplate="%{text}%", textfont=dict(size=11),
-            hovertemplate="%{y} · %{x}: %{z:.1f}%<extra></extra>", colorbar=dict(title="%")))
-        st.plotly_chart(layout(hm, 320), theme=None, width="stretch")
-
-    st.markdown("### Margem por faixa de ticket")
-    st.markdown('<p class="msg">O frete é custo fixo por pedido: em tickets baixos ele consome '
-                'a margem inteira.</p>', unsafe_allow_html=True)
-    ft2 = (df.groupby("faixa_ticket", observed=True)
-           .apply(lambda g: pd.Series({"margem": mpct(g), "pedidos": len(g),
-                                       "frete": g["custo_frete"].sum() / g["receita_liquida"].sum() * 100}),
-                  include_groups=False))
-    f3 = go.Figure()
-    f3.add_bar(x=ft2.index.astype(str), y=ft2["margem"], name="Margem (%)",
-              marker_color=[ERRO if v < 25 else ELO_BLUE for v in ft2["margem"]],
-              text=[f"{v:.1f}%" for v in ft2["margem"]], textposition="outside",
-              textfont=dict(size=11), hovertemplate="%{x}: %{y:.2f}%<extra></extra>")
-    f3.add_scatter(x=ft2.index.astype(str), y=ft2["frete"], name="Frete (% receita)",
-                   mode="lines+markers", line=dict(color=MAGENTA, width=3),
-                   hovertemplate="Frete: %{y:.2f}%<extra></extra>")
-    f3.update_layout(yaxis_title="% da receita líquida", showlegend=True)
-    st.plotly_chart(layout(f3, 340), theme=None, width="stretch")
-
-# ======================================================================
-# ABA 3 — DESCONTO
-# ======================================================================
-with t3:
-    st.markdown("## O desconto não gera contrapartida em volume")
-    st.markdown('<p class="msg">Pedidos com 30% ou mais de desconto levam a mesma quantidade de '
-                'itens e têm o mesmo ticket bruto de pedidos sem desconto algum. Só a margem muda.</p>',
-                unsafe_allow_html=True)
-
-    fx = (df.groupby("faixa_desconto", observed=True)
-          .agg(pedidos=("order_id", "count"), itens=("quantidade", "mean"),
-               ticket=("receita_bruta", "mean"), margem=("margem_contribuicao", "mean"),
-               desc_total=("desconto_reais", "sum")))
-
-    a, b = st.columns([3, 2], gap="large")
-    with a:
-        f4 = go.Figure()
-        f4.add_bar(x=fx.index.astype(str), y=fx["margem"], name="Margem por pedido (R$)",
-                   marker_color=ELO_BLUE, text=[brl(v) for v in fx["margem"]],
-                   textposition="outside", textfont=dict(size=10),
-                   hovertemplate="Margem: R$ %{y:.2f}<extra></extra>")
-        f4.add_scatter(x=fx.index.astype(str), y=fx["itens"], name="Itens por pedido",
-                       yaxis="y2", mode="lines+markers", line=dict(color=MAGENTA, width=3),
-                       marker=dict(size=9), hovertemplate="Itens: %{y:.2f}<extra></extra>")
-        f4.update_layout(
-            yaxis=dict(title="Margem por pedido (R$)", range=[0, 560]),
-            yaxis2=dict(title="Itens por pedido", overlaying="y", side="right",
-                        range=[0, 6], showgrid=False),
-            xaxis_title="Faixa de desconto")
-        st.plotly_chart(layout(f4, 400), theme=None, width="stretch")
-        st.markdown('<p class="nota">A linha de itens permanece plana enquanto a margem cai. '
-                    'O desconto não compra volume.</p>', unsafe_allow_html=True)
-    with b:
-        cd, sd = df[df["tem_desconto"]], df[~df["tem_desconto"]]
-        f5 = go.Figure(go.Bar(
-            x=["Sem desconto", "Com desconto"], y=[mpct(sd), mpct(cd)],
-            marker_color=[ELO_BLUE, MAGENTA],
-            text=[f"{mpct(sd):.2f}%", f"{mpct(cd):.2f}%"], textposition="outside",
-            textfont=dict(size=15), hovertemplate="%{x}: %{y:.2f}%<extra></extra>"))
-        f5.update_layout(yaxis_title="Margem (%)", yaxis_range=[0, 72], showlegend=False,
-                         title=dict(text="Margem: com vs. sem desconto"))
-        st.plotly_chart(layout(f5, 400), theme=None, width="stretch")
-        st.markdown(f'<p class="nota"><b>{brl(DESC25)}</b> concentrados em descontos acima de 25%, '
-                    f'em {inteiro(df["desconto_acima_25"].sum())} pedidos.</p>',
-                    unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("## O desconto cresce nos meses de maior demanda")
-    st.markdown('<p class="msg">Novembro concentra o maior volume, o maior desconto e a pior '
-                'margem do ano — a promoção é dada justamente quando o cliente já compraria.</p>',
-                unsafe_allow_html=True)
-    f6 = go.Figure()
-    f6.add_bar(x=cal.index, y=cal["idx_pedidos"], name="Índice de volume (média = 100)",
-               marker_color=CINZA_CLARO, hovertemplate="Volume: %{y:.0f}<extra></extra>")
-    f6.add_scatter(x=cal.index, y=cal["desconto_pct"], name="Desconto (% receita bruta)",
-                   yaxis="y2", mode="lines+markers", line=dict(color=MAGENTA, width=3),
-                   marker=dict(size=8), hovertemplate="Desconto: %{y:.2f}%<extra></extra>")
-    f6.add_scatter(x=cal.index, y=cal["margem_pct"], name="Margem (%)",
-                   yaxis="y3", mode="lines+markers",
-                   line=dict(color=ELO_BLUE, width=3, dash="dot"), marker=dict(size=8),
-                   hovertemplate="Margem: %{y:.2f}%<extra></extra>")
-    f6.update_layout(
-        yaxis=dict(title="Índice de volume", range=[0, 210]),
-        yaxis2=dict(title="Desconto (%)", overlaying="y", side="right", range=[0, 12], showgrid=False),
-        yaxis3=dict(overlaying="y", side="right", range=[45, 60], showticklabels=False, showgrid=False))
-    st.plotly_chart(layout(f6, 380), theme=None, width="stretch")
-    st.markdown('<p class="nota">Base do calendário: 2023, único ano completo.</p>',
-                unsafe_allow_html=True)
-
-# ======================================================================
-# ABA 4 — FRETE
-# ======================================================================
-with t4:
-    st.markdown("## O frete grátis segue uma regra que exclui o Marketplace")
-    st.markdown('<p class="msg">Acima de R$ 250, todos os canais têm frete grátis — exceto o '
-                'Marketplace, que paga em 100% dos pedidos.</p>', unsafe_allow_html=True)
-
-    df["grupo_frete"] = "Marketplace"
-    fora = df["canal"] != "Marketplace"
-    df.loc[fora & (df["receita_liquida"] >= 250), "grupo_frete"] = "Demais canais · ticket ≥ R$ 250"
-    df.loc[fora & (df["receita_liquida"] < 250), "grupo_frete"] = "Demais canais · ticket < R$ 250"
-    ordem = ["Demais canais · ticket ≥ R$ 250", "Demais canais · ticket < R$ 250", "Marketplace"]
-    g = (df.groupby("grupo_frete")
-         .agg(pedidos=("order_id", "count"),
-              pct_gratis=("frete_gratis", lambda s: s.mean() * 100),
-              frete_medio=("custo_frete", "mean")).reindex([o for o in ordem if o in df["grupo_frete"].values]))
-
-    a, b = st.columns(2, gap="large")
-    with a:
-        st.markdown("### Pedidos com frete grátis")
-        f7 = go.Figure(go.Bar(
-            y=g.index, x=g["pct_gratis"], orientation="h",
-            marker_color=[SUCESSO if v > 50 else ERRO for v in g["pct_gratis"]],
-            text=[f"{v:.0f}%" for v in g["pct_gratis"]], textposition="outside",
-            textfont=dict(size=14), hovertemplate="%{y}: %{x:.2f}%<extra></extra>"))
-        f7.update_layout(xaxis_title="% dos pedidos", xaxis_range=[0, 118], showlegend=False)
-        st.plotly_chart(layout(f7, 320), theme=None, width="stretch")
-        st.markdown('<p class="nota">A regra é determinística: 100% e 0%, sem meio-termo.</p>',
-                    unsafe_allow_html=True)
-    with b:
-        st.markdown("### Frete como % da receita, por canal")
-        fp = (df.groupby("canal")
-              .apply(lambda x: x["custo_frete"].sum() / x["receita_liquida"].sum() * 100,
-                     include_groups=False).sort_values())
-        f8 = go.Figure(go.Bar(
-            y=fp.index, x=fp.values, orientation="h",
-            marker_color=[MAGENTA if c == "Marketplace" else ELO_BLUE for c in fp.index],
-            text=[f"{v:.2f}%" for v in fp.values], textposition="outside",
-            textfont=dict(size=11), hovertemplate="%{y}: %{x:.2f}%<extra></extra>"))
-        f8.update_layout(xaxis_title="Frete (% da receita)", xaxis_range=[0, 6.4], showlegend=False)
-        st.plotly_chart(layout(f8, 320), theme=None, width="stretch")
-        st.markdown('<p class="nota">A única variável da base com dispersão relevante entre canais.</p>',
-                    unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("### Onde está o frete não subsidiado")
-    mk = df[df["canal"] == "Marketplace"]
     eleg = mk[mk["receita_liquida"] >= 250]
-    x, y, z = st.columns(3, gap="medium")
-    kpi(x, "Pedidos MK com ticket ≥ R$ 250", inteiro(len(eleg)),
-        f"{num(len(eleg)/max(len(mk),1)*100,1)}% do canal — teriam frete grátis em qualquer outro")
-    kpi(y, "Frete pago por esses pedidos", brl(FRETE_MK),
-        f"+<b>{num(FRETE_MK/R*100)} p.p.</b> de margem se subsidiado", "danger")
-    kpi(z, "Frete médio quando cobrado", brl(mk.loc[mk["custo_frete"] > 0, "custo_frete"].mean(), 2),
-        f"contra R$ 0,00 nos demais canais acima de R$ 250")
+    if len(eleg) and eleg["custo_frete"].sum() > 0:
+        texto = (f"{inteiro(len(eleg))} pedidos do Marketplace acima de R$ 250 pagaram "
+                 f"{brl(eleg['custo_frete'].sum())} de frete.")
+        alto = fora[fora["receita_liquida"] >= 250]
+        if len(alto) and alto["frete_gratis"].mean() == 1:
+            texto += " Nos demais canais, todos os pedidos dessa faixa têm frete grátis."
+        recs.append(dict(
+            tema="Frete", aba="Frete e entrega", valor=eleg["custo_frete"].sum(),
+            titulo="Marketplace paga frete acima de R$ 250", texto=texto, rotulo="frete pago no período",
+            acao="Negociar frete subsidiado com o marketplace acima de R$ 250 ou incorporar o frete ao preço do canal."))
 
-    st.markdown("### Impacto acumulado do frete Marketplace no tempo")
-    mkm = (mk[mk["receita_liquida"] >= 250].groupby("ano_mes")["custo_frete"].sum()
-           .reindex(sorted(df["ano_mes"].unique()), fill_value=0))
-    acc = go.Figure()
-    acc.add_bar(x=[pd.to_datetime(m + "-01").strftime("%b/%y") for m in mkm.index], y=mkm.values,
-                name="Frete no mês", marker_color=CINZA_CLARO,
-                hovertemplate="%{x}: R$ %{y:,.0f}<extra></extra>")
-    acc.add_scatter(x=[pd.to_datetime(m + "-01").strftime("%b/%y") for m in mkm.index],
-                    y=mkm.cumsum().values, name="Acumulado", mode="lines+markers",
-                    line=dict(color=MAGENTA, width=3), hovertemplate="Acum.: R$ %{y:,.0f}<extra></extra>")
-    acc.update_layout(yaxis=dict(tickprefix="R$ ", tickformat="~s", title=None))
-    st.plotly_chart(layout(acc, 340), theme=None, width="stretch")
+    acima = d[d["desconto_pct"] > 25]
+    if len(acima):
+        excedente = ((acima["desconto_pct"] - 25) / 100 * acima["receita_bruta"]).sum()
+        a30, d0 = d[d["desconto_pct"] >= 30], d[d["desconto_pct"] == 0]
+        mesmo_volume = (len(a30) >= 30 and len(d0) >= 30
+                        and abs(a30["quantidade"].mean() - d0["quantidade"].mean()) < 0.1
+                        and abs(a30["receita_bruta"].mean() / d0["receita_bruta"].mean() - 1) < 0.02)
+        texto = (f"{inteiro(len(acima))} pedidos ({pct(len(acima) / len(d) * 100)}) tiveram desconto acima de "
+                 f"25%, somando {brl(acima['desconto_reais'].sum())} em desconto.")
+        if mesmo_volume:
+            texto += (" Pedidos com 30% ou mais de desconto têm a mesma quantidade de itens e o mesmo ticket "
+                      "bruto dos pedidos sem desconto.")
+        recs.append(dict(
+            tema="Desconto", aba="Desconto", valor=excedente, rotulo="de desconto acima do teto de 25%",
+            titulo="Descontos acima de 25% sem ganho de volume" if mesmo_volume else "Descontos acima de 25%",
+            texto=texto, acao="Adotar teto de 25% no desconto por pedido, com aprovação obrigatória acima dele."))
 
-# ======================================================================
-# ABA 5 — DEVOLUÇÕES & ENTREGA
-# ======================================================================
-with t5:
-    st.markdown("## A devolução transforma margem em prejuízo direto")
-    st.markdown(f'<p class="msg">{num(TX_DEV,1)}% dos pedidos voltam. Em cada um, a receita '
-                f'evapora mas CMV e frete permanecem — <b>{brl(PERDA_DEV)}</b> no período.</p>',
-                unsafe_allow_html=True)
+    baixo = d[d["receita_liquida"] < 100]
+    if len(baixo) >= 20:
+        tb = agregar(baixo).iloc[0]
+        if tb.margem_pct < total.margem_pct - 15:
+            recs.append(dict(
+                tema="Ticket", aba="Frete e entrega", valor=tb.frete, rotulo="de frete em pedidos até R$ 100",
+                titulo="Pedidos até R$ 100 quase não geram margem",
+                texto=(f"{inteiro(tb.pedidos)} pedidos até R$ 100 têm margem de {pct(tb.margem_pct)}, contra "
+                       f"{pct(total.margem_pct)} no total. O frete consome {pct(tb.frete_pct)} da receita desses pedidos."),
+                acao="Definir valor mínimo de pedido ou cobrar frete integral abaixo de R$ 100."))
 
-    d1, d2 = st.columns([2, 3], gap="large")
-    with d1:
-        mot = (df[df["devolvido"]].groupby("motivo_devolucao")
-               .agg(pedidos=("order_id", "count"),
-                    perda=("custo_produto", "sum")).sort_values("pedidos"))
-        mot["perda"] += df[df["devolvido"]].groupby("motivo_devolucao")["custo_frete"].sum()
-        fm = go.Figure(go.Bar(
-            y=mot.index, x=mot["pedidos"], orientation="h",
-            marker_color=[ERRO if "defeito" in m or "Atraso" in m else CINZA_MEDIO for m in mot.index],
-            text=[f"{inteiro(p)} · {brl(v)}" for p, v in zip(mot["pedidos"], mot["perda"])],
-            textposition="outside", textfont=dict(size=10),
-            hovertemplate="%{y}: %{x} pedidos<extra></extra>"))
-        fm.update_layout(xaxis_title="Pedidos devolvidos", showlegend=False,
-                         xaxis_range=[0, mot["pedidos"].max() * 1.5],
-                         title=dict(text="Motivo da devolução"))
-        st.plotly_chart(layout(fm, 360), theme=None, width="stretch")
-        oper = mot.loc[[m for m in mot.index if "defeito" in m or "Atraso" in m], "pedidos"].sum()
-        st.markdown(f'<p class="nota"><b>{num(oper/max(df["devolvido"].sum(),1)*100,0)}%</b> das '
-                    f'devoluções têm causa operacional (defeito ou atraso) — endereçável.</p>',
-                    unsafe_allow_html=True)
-    with d2:
-        st.markdown("### Taxa de devolução por canal e categoria")
-        dev_piv = df.pivot_table(index="canal", columns="categoria",
-                                 values="devolvido", aggfunc="mean") * 100
-        hm2 = go.Figure(go.Heatmap(
-            z=dev_piv.values, x=dev_piv.columns, y=dev_piv.index,
-            colorscale=[[0, "#FFFFFF"], [1, ERRO]],
-            text=dev_piv.values, texttemplate="%{text:.1f}%", textfont=dict(size=11),
-            hovertemplate="%{y} · %{x}: %{z:.1f}%<extra></extra>", colorbar=dict(title="%")))
-        st.plotly_chart(layout(hm2, 360), theme=None, width="stretch")
+    dev = d[d["devolvido"]]
+    if len(dev) >= 20:
+        op = dev[dev["motivo_devolucao"].isin(OPERACIONAIS)]
+        custo = op["custo_produto"].sum() + op["custo_frete"].sum()
+        if len(op):
+            texto = (f"{pct(len(op) / len(dev) * 100, 0)} das devoluções são por defeito ou atraso na entrega "
+                     f"e custaram {brl(custo)} em CMV e frete.")
+            acao = "Auditar fornecedores dos produtos com mais devoluções por defeito"
+            if len(mk) and len(fora):
+                pm, pf = mk["tempo_entrega_real"].mean(), fora["tempo_entrega_real"].mean()
+                if pm - pf >= 2:
+                    texto += f" O prazo médio do Marketplace é de {num(pm)} dias, contra {num(pf)} nos demais canais."
+                    acao += " e renegociar o prazo de entrega do Marketplace"
+            recs.append(dict(tema="Devolução", aba="Devoluções", valor=custo, rotulo="de CMV e frete perdidos",
+                             titulo="Devoluções por defeito e atraso", texto=texto, acao=acao + "."))
 
-    st.markdown("---")
-    st.markdown("## Prazo de entrega e taxa de devolução")
-    st.markdown('<p class="msg">Nas faixas de entrega mais longas a devolução fica ~1,5 p.p. '
-                'acima das faixas curtas. O sinal é fraco, mas aponta o SLA como variável a '
-                'monitorar.</p>', unsafe_allow_html=True)
-    df["_faixa_entrega"] = pd.cut(df["tempo_entrega_real"], [0, 4, 7, 10, 13, 20],
-                                  labels=["≤4 dias", "5–7", "8–10", "11–13", "14+"])
-    ent = (df.groupby("_faixa_entrega", observed=True)
-           .agg(dev=("devolvido", "mean"), pedidos=("order_id", "count"),
-                margem=("margem_pct", "mean")))
-    fe = go.Figure()
-    fe.add_bar(x=ent.index.astype(str), y=ent["pedidos"], name="Pedidos",
-               marker_color=CINZA_CLARO, hovertemplate="%{x}: %{y} pedidos<extra></extra>")
-    fe.add_scatter(x=ent.index.astype(str), y=ent["dev"] * 100, name="Taxa de devolução (%)",
-                   yaxis="y2", mode="lines+markers", line=dict(color=ERRO, width=3),
-                   marker=dict(size=9), hovertemplate="Devolução: %{y:.1f}%<extra></extra>")
-    fe.update_layout(yaxis_title="Pedidos",
-                     yaxis2=dict(title="Taxa de devolução (%)", overlaying="y", side="right",
-                                 range=[10, 20], showgrid=False))
-    st.plotly_chart(layout(fe, 360), theme=None, width="stretch")
+    meses = agregar(d, "ano_mes")
+    meses = meses[meses["pedidos"] >= 100]
+    if len(meses) >= 3:
+        pico = meses["desconto_pct"].idxmax()
+        mediana = meses.drop(pico)["desconto_pct"].median()
+        excesso = meses.loc[pico, "desconto_pct"] - mediana
+        if excesso >= 1:
+            nome = mes_rotulo(pico, extenso=True)
+            texto = (f"Em {nome} o desconto chegou a {pct(meses.loc[pico, 'desconto_pct'])} da receita bruta, "
+                     f"contra mediana de {pct(mediana)} nos demais meses.")
+            if meses["pedidos"].idxmax() == pico:
+                texto += " Foi também o mês de maior volume de pedidos."
+            recs.append(dict(
+                tema="Sazonalidade", aba="Desconto", valor=excesso / 100 * meses.loc[pico, "receita_bruta"],
+                rotulo="de desconto acima da mediana no mês", titulo=f"Desconto fora do padrão em {nome}",
+                texto=texto,
+                acao="Planejar campanhas de meses de pico com desconto limitado à mediana dos demais meses."))
+    return sorted(recs, key=lambda r: -r["valor"])
 
-# ======================================================================
-# ABA 6 — SIMULADOR
-# ======================================================================
-with t6:
-    st.markdown("## Simulador de rentabilidade")
-    st.markdown('<p class="msg">Combine as três alavancas e veja o efeito na margem — cálculo '
-                'aplicado sobre o recorte atual de filtros. Nenhuma alavanca mexe em preço ou CMV.</p>',
-                unsafe_allow_html=True)
 
-    s1, s2, s3 = st.columns(3, gap="large")
-    with s1:
-        lev_frete = st.slider("Frete Marketplace ≥ R$ 250 subsidiado", 0, 100, 100, 5,
-                              format="%d%%",
-                              help="% dos pedidos do Marketplace acima de R$ 250 que passam a ter frete grátis.")
-    with s2:
-        teto = st.slider("Teto de desconto", 10, 40, 25, 1, format="%d%%",
-                         help="Descontos acima deste teto são limitados ao teto.")
-        ades_desc = st.slider("Adesão da política de teto", 0, 100, 80, 5, format="%d%%")
-    with s3:
-        red_dev = st.slider("Redução de devoluções operacionais", 0, 100, 40, 5, format="%d%%",
-                            help="% de queda nas devoluções por defeito ou atraso na entrega.")
+RECS = gerar_insights(df)
+REC = {r["tema"]: r for r in RECS}
 
-    ganho_frete = FRETE_MK * (lev_frete / 100)
 
-    mask_teto = df["desconto_pct"] > teto
-    ganho_desc = ((df.loc[mask_teto, "desconto_pct"] - teto) / 100
-                  * df.loc[mask_teto, "receita_bruta"]).sum() * (ades_desc / 100)
+def insight_do_tema(tema):
+    r = REC.get(tema)
+    if r:
+        insight(r["texto"], r["acao"])
 
-    dev_oper = df[df["devolvido"] & df["motivo_devolucao"].isin(
-        ["Produto com defeito", "Atraso na entrega"])]
-    ganho_dev = dev_oper[["custo_produto", "custo_frete"]].sum().sum() * (red_dev / 100)
 
-    ganho_margem = ganho_frete + ganho_desc
-    M_novo = M + ganho_margem
-    margem_nova_pct = M_novo / R * 100
-    real_novo_pct = (M_REAL + ganho_margem + ganho_dev) / R_REAL * 100 if R_REAL else np.nan
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    r1, r2, r3, r4 = st.columns(4, gap="medium")
-    kpi(r1, "Margem de contribuição projetada", f"{num(margem_nova_pct)}%",
-        f"de {num(M/R*100)}% &nbsp;→&nbsp; <b>+{num(margem_nova_pct - M/R*100)} p.p.</b>", "ok")
-    kpi(r2, "Ganho de margem no período", brl(ganho_margem),
-        f"frete {brl(ganho_frete)} + desconto {brl(ganho_desc)}", "ok")
-    kpi(r3, "Margem realizada projetada", f"{num(real_novo_pct)}%",
-        f"de {num(MARGEM_REAL_PCT)}% &nbsp;→&nbsp; <b>+{num(real_novo_pct - MARGEM_REAL_PCT)} p.p.</b>", "ok")
-    kpi(r4, "Devoluções operacionais evitadas", brl(ganho_dev),
-        f"{inteiro(len(dev_oper) * red_dev / 100)} pedidos recuperados", "ok")
-
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    # A cascata parte da margem REALIZADA, não da contábil: a alavanca de
-    # devoluções só existe nessa definição. Somá-la à margem de contribuição
-    # produziria um total que não corresponde a nenhuma das duas métricas.
-    M_REAL_PROJ = M_REAL + ganho_margem + ganho_dev
-    wf = go.Figure(go.Waterfall(
-        orientation="v",
-        measure=["absolute", "relative", "relative", "relative", "total"],
-        x=["Margem realizada atual", "+ Frete MK", "+ Teto desconto",
-           "+ Menos devolução", "Margem realizada projetada"],
-        y=[M_REAL, ganho_frete, ganho_desc, ganho_dev, M_REAL_PROJ],
-        text=[brl(M_REAL), brl(ganho_frete), brl(ganho_desc), brl(ganho_dev), brl(M_REAL_PROJ)],
-        textposition="outside", textfont=dict(size=12, color=GRAFITE),
-        connector=dict(line=dict(color=CINZA_CLARO)),
-        increasing=dict(marker=dict(color=SUCESSO)),
-        decreasing=dict(marker=dict(color=MAGENTA)),
-        totals=dict(marker=dict(color=ELO_BLUE)),
-        hovertemplate="%{x}: %{text}<extra></extra>"))
-    wf.update_layout(showlegend=False,
-                     yaxis=dict(tickprefix="R$ ", tickformat="~s", title=None),
-                     title=dict(text="Ponte da margem realizada — atual → projetada"))
-    st.plotly_chart(layout(wf, 420), theme=None, width="stretch")
-    st.markdown(f'<p class="nota">As três alavancas somam sobre a margem <b>realizada</b> '
-                f'({num(MARGEM_REAL_PCT)}% → {num(real_novo_pct)}%). Sobre a margem de '
-                f'contribuição, só frete e desconto se aplicam: {num(M/R*100)}% → '
-                f'{num(margem_nova_pct)}%.</p>', unsafe_allow_html=True)
-
-    st.markdown(f"""<p class="nota">
-    <b>Premissas.</b> Frete: elimina o custo de frete dos pedidos do Marketplace com receita
-    líquida ≥ R$ 250 (elegíveis à regra vigente nos demais canais). Desconto: recupera a parcela
-    do desconto que excede o teto, ponderada pela adesão — não assume perda de volume, coerente
-    com a evidência da aba Desconto. Devoluções: recupera CMV + frete das devoluções por defeito
-    ou atraso, na proporção definida. Valores no período de 13 meses da base.
-    </p>""", unsafe_allow_html=True)
+abas = st.tabs(["Visão geral", "Explorar", "Canais", "Desconto", "Frete e entrega", "Devoluções",
+                "Alertas", "Simulador"])
 
 # ======================================================================
-# RODAPÉ
+# VISÃO GERAL
 # ======================================================================
-st.markdown(f"<p class='nota' style='margin-top:44px;border-top:1px solid {CINZA_CLARO};"
-            f"padding-top:16px'>AI Consulting Lab · Bootcamp EloGroup 2026 — "
-            f"margem de contribuição sobre pedidos aprovados. Margem realizada desconta "
-            f"devoluções (CMV e frete não retornam). Calendário sazonal com base em 2023, "
-            f"único ano completo. Ver sanity checks em tratamento_base_V@.py.</p>",
-            unsafe_allow_html=True)
+with abas[0]:
+    with card("evolucao"):
+        cabecalho("Evolução no período", "Escolha a métrica e a granularidade")
+        opcoes_evo = {"Receita líquida": "receita", "Margem (%)": "margem_pct", "Pedidos": "pedidos",
+                      "Ticket médio": "ticket", "Desconto (%)": "desconto_pct", "Devolução (%)": "taxa_dev"}
+        g = st.columns([3, 1.2], vertical_alignment="center")
+        met_evo = opcoes_evo[g[0].segmented_control("Métrica", list(opcoes_evo), default="Receita líquida",
+                                                    required=True, key="evo_metrica", label_visibility="collapsed")]
+        gran = g[1].segmented_control("Granularidade", ["Dia", "Semana", "Mês"],
+                                      default="Dia" if dias <= 45 else ("Semana" if dias <= 180 else "Mês"),
+                                      required=True, key=f"evo_gran_{preset}", label_visibility="collapsed")
+        freq = {"Dia": "D", "Semana": "W", "Mês": "M"}[gran]
+        serie = agregar(df.assign(periodo=df["dia"].dt.to_period(freq).dt.start_time), "periodo")
+        info = METRICAS[met_evo]
+        rotulo_x = ([mes_rotulo(p.strftime("%Y-%m")) for p in serie.index] if gran == "Mês"
+                    else [p.strftime("%d/%m/%y") for p in serie.index])
+        aditiva = met_evo in ADITIVAS
+        fig = go.Figure(go.Scatter(
+            x=rotulo_x, y=serie[met_evo], mode="lines+markers" if len(serie) <= 40 else "lines",
+            line=dict(color=VIOLETA, width=2.5),
+            marker=dict(size=8, color=VIOLETA, line=dict(color=ROXO_ESCURO, width=2)),
+            fill="tozeroy" if aditiva else None,
+            fillgradient=dict(type="vertical", colorscale=[[0, "rgba(139,92,246,0)"], [1, "rgba(139,92,246,0.45)"]])
+            if aditiva else None,
+            hovertemplate=hover_num(info["tipo"], "y") + "<extra></extra>", name=info["nome"]))
+        pico_i = int(np.nanargmax(serie[met_evo].values))
+        fig.add_scatter(x=[rotulo_x[pico_i]], y=[serie[met_evo].iloc[pico_i]], mode="markers+text",
+                        marker=dict(size=11, color=ROSA, line=dict(color=ROXO_ESCURO, width=2)),
+                        text=[f"Máximo: {fmt(serie[met_evo].iloc[pico_i], info['tipo'])}"], textposition="top center",
+                        textfont=dict(size=11, color=TEXTO), hoverinfo="skip", showlegend=False)
+        fig.update_layout(hovermode="x unified")
+        fig.update_xaxes(showspikes=True, spikemode="across", spikethickness=1, spikecolor=BORDA_FORTE,
+                         spikedash="solid", nticks=14)
+        fig.update_yaxes(**eixo_fmt(info["tipo"]), rangemode="tozero" if aditiva else "normal")
+        topo_y = np.nanmax(serie[met_evo].values)
+        if aditiva:
+            fig.update_yaxes(range=[0, topo_y * 1.18])
+        plot(estilo(fig, H_M))
+        nota("Semanas e meses nas pontas do período podem estar incompletos.")
+
+    c = st.columns(2, gap="small")
+    with c[0]:
+        with card("margem_canal"):
+            cabecalho("Margem por canal", "Clique numa barra para filtrar o painel pelo canal")
+            t = agregar(df_sem_drill, "canal")
+            foco = {drill_canal} if drill_canal else {t["margem_pct"].idxmin()}
+            ordem_t = t.sort_values("margem_pct")
+            fig = barras_h(t, "margem_pct", "pct", foco=foco, altura=H_M,
+                           customdata=[[i, brl_c(r)] for i, r in zip(ordem_t.index, ordem_t["receita"])])
+            fig.update_traces(hovertemplate="<b>%{y}</b><br>Margem: %{x:.1f}%<br>Receita: %{customdata[1]}<extra></extra>",
+                              unselected=dict(marker=dict(opacity=1)))
+            plot(fig, key=CHAVE_DRILL, selecionavel=True)
+            if "Marketplace" in t.index and len(t) > 1:
+                demais = agregar(df_sem_drill[df_sem_drill["canal"] != "Marketplace"]).iloc[0]
+                gap = demais.margem_pct - t.loc["Marketplace", "margem_pct"]
+                gap_frete = t.loc["Marketplace", "frete_pct"] - demais.frete_pct
+                if gap > 0:
+                    insight(f"O Marketplace tem margem {num(gap)} p.p. abaixo dos demais canais somados. "
+                            f"O frete, sozinho, pesa {num(gap_frete)} p.p. a mais na receita do Marketplace.")
+    with c[1]:
+        with card("ponte"):
+            cabecalho("Composição da margem", "Da receita bruta à margem de contribuição")
+            fig = go.Figure(go.Waterfall(
+                measure=["absolute", "relative", "relative", "relative", "total"],
+                x=["Receita bruta", "Desconto", "CMV", "Frete", "Margem"],
+                y=[K.receita_bruta, -K.desconto, -K.cmv, -K.frete, K.margem],
+                text=[brl_c(K.receita_bruta), brl_c(-K.desconto), brl_c(-K.cmv), brl_c(-K.frete), brl_c(K.margem)],
+                textposition="outside", textfont=dict(size=11, color=TEXTO_2),
+                connector=dict(line=dict(color=BORDA_FORTE, width=1)),
+                decreasing=dict(marker=dict(color=ROSA)), increasing=dict(marker=dict(color=VIOLETA)),
+                totals=dict(marker=dict(color=VIOLETA)), hovertemplate="%{x}: %{text}<extra></extra>"))
+            fig.update_yaxes(range=[0, K.receita_bruta * 1.15], tickprefix="R$ ", tickformat="~s")
+            plot(estilo(fig, H_M))
+            insight(f"Desconto e frete somam {brl_c(K.desconto + K.frete)}, "
+                    f"{pct((K.desconto + K.frete) / K.receita_bruta * 100)} da receita bruta. São as deduções "
+                    f"que dependem de decisão comercial; o CMV representa {pct(K.cmv_pct)} da receita líquida.")
+
+    with card("recs"):
+        cabecalho("Insights e ações recomendadas",
+                  "Ordenados pelo valor em jogo no recorte atual. A barra compara cada valor ao maior; "
+                  "os valores se sobrepõem e não devem ser somados.")
+        if RECS:
+            maior = max(r["valor"] for r in RECS)
+            blocos = []
+            for i, r in enumerate(RECS, start=1):
+                cor = TEMA_COR.get(r["tema"], VIOLETA)
+                largura = max(4, r["valor"] / maior * 100) if maior > 0 else 4
+                blocos.append(
+                    f'<div class="rec"><div class="rec-topo"><span class="rank">{i:02d}</span>'
+                    f'<span class="tema" style="background:{cor}33;border:1px solid {cor}80">{esc(r["tema"])}</span>'
+                    f'<span class="rec-aba">Aba {esc(r["aba"])}</span></div>'
+                    f'<div class="rec-titulo">{esc(r["titulo"])}</div><div class="rec-texto">{esc(r["texto"])}</div>'
+                    f'<div class="rec-valor"><b>{brl_c(r["valor"])}</b>{esc(r["rotulo"])}</div>'
+                    f'<div class="medidor"><span style="width:{largura:.0f}%"></span></div>'
+                    f'<div class="rec-acao"><b>Ação:</b> {esc(r["acao"])}</div></div>')
+            st.markdown('<div class="recs">' + "".join(blocos) + '</div>', unsafe_allow_html=True)
+        else:
+            nota("Nenhum ponto de atenção com amostra suficiente neste recorte.")
+
+# ======================================================================
+# EXPLORAR (self-service)
+# ======================================================================
+DIMENSOES = {"Canal": "canal", "Categoria": "categoria", "Método de pagamento": "metodo_pagamento",
+             "Faixa de ticket": "faixa_ticket", "Faixa de desconto": "faixa_desconto",
+             "Prazo de entrega": "faixa_prazo", "Mês": "mes_rotulo", "Motivo de devolução": "motivo_devolucao",
+             "Produto": "produto"}
+ORDENADAS = {"faixa_ticket", "faixa_desconto", "faixa_prazo", "mes_rotulo"}
+QUEBRAS = {"Canal": "canal", "Categoria": "categoria", "Método de pagamento": "metodo_pagamento"}
+COLS_PEDIDO = {"order_id": "Pedido", "data_pedido": "Data", "canal": "Canal", "categoria": "Categoria",
+               "produto": "Produto", "metodo_pagamento": "Pagamento", "receita_liquida": "Receita líquida (R$)",
+               "desconto_pct": "Desconto (%)", "custo_frete": "Frete (R$)", "margem_contribuicao": "Margem (R$)",
+               "margem_pct": "Margem (%)", "tempo_entrega_real": "Prazo (dias)", "motivo_devolucao": "Devolução"}
+
+
+def tabela_pedidos(d, chave, altura=380):
+    t = d[list(COLS_PEDIDO)].rename(columns=COLS_PEDIDO).sort_values("Margem (R$)")
+    cfg = {c: st.column_config.NumberColumn(c, format="localized") for c in t.columns
+           if t[c].dtype.kind in "fi"}
+    cfg["Data"] = st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY")
+    st.dataframe(t, hide_index=True, height=altura, column_config=cfg, key=f"tab_{chave}")
+    st.download_button("Exportar CSV", csv_bytes(t), file_name=f"pedidos_{chave}.csv", mime="text/csv",
+                       key=f"csv_{chave}")
+
+
+with abas[1]:
+    with card("explorar"):
+        cabecalho("Explorar dados", "Escolha dimensão, métrica e quebra. Clique em barras ou células para listar os pedidos.")
+        c = st.columns([1.1, 1.4, 1.1, 1.2], gap="small", vertical_alignment="bottom")
+        dim_nome = c[0].selectbox("Dimensão", list(DIMENSOES), key="exp_dim")
+        dim = DIMENSOES[dim_nome]
+        met = {v["nome"]: k for k, v in METRICAS.items()}[
+            c[1].selectbox("Métrica", [v["nome"] for v in METRICAS.values()], index=2, key="exp_met")]
+        quebra_nome = c[2].selectbox("Quebrar por", ["Nenhuma"] + [q for q in QUEBRAS if QUEBRAS[q] != dim],
+                                     key="exp_quebra")
+        quebra = QUEBRAS.get(quebra_nome)
+        base_exp = df[df["devolvido"]] if dim == "motivo_devolucao" else df
+        if dim == "produto":
+            lado = c[3].segmented_control("Exibir", ["15 maiores", "15 menores"], default="15 maiores",
+                                          required=True, key="exp_lado")
+        info = METRICAS[met]
+
+        t = agregar(base_exp, dim)
+        if dim == "produto":
+            t = t[t["pedidos"] >= 10].sort_values(met, ascending=lado == "15 menores").head(15)
+        membros = list(t.index)
+        altura_exp = max(H_M, 30 * len(membros) + 70) if dim not in ORDENADAS else H_G
+        chave_exp = f"exp_{dim}_{met}_{quebra}"
+
+        if quebra is None:
+            if dim in ORDENADAS:
+                fig = colunas([str(i) for i in t.index], t[met].values, info["tipo"], altura=altura_exp,
+                              rotulos=len(t) <= 14)
+                fig.update_traces(customdata=[str(i) for i in t.index],
+                                  hovertemplate="<b>%{x}</b><br>" + hover_num(info["tipo"], "y") + "<extra></extra>")
+            else:
+                fig = barras_h(t, met, info["tipo"], altura=altura_exp)
+        elif met in ADITIVAS:
+            tq = agregar(base_exp[base_exp[dim].isin(membros)], [dim, quebra])[met].unstack(quebra).reindex(membros)
+            if dim not in ORDENADAS:
+                tq = tq.loc[t[met].sort_values().index]
+            fig = go.Figure()
+            for q in [q for q in CORES_DIM[quebra] if q in tq.columns]:
+                eixo_cat = [str(i) for i in tq.index]
+                kw = dict(x=eixo_cat, y=tq[q]) if dim in ORDENADAS else dict(y=eixo_cat, x=tq[q], orientation="h")
+                fig.add_bar(**kw, name=q, marker_color=CORES_DIM[quebra][q],
+                            marker_line=dict(color=ROXO_ESCURO, width=1.5),
+                            customdata=[[i, q] for i in eixo_cat],
+                            hovertemplate=f"<b>%{{{'x' if dim in ORDENADAS else 'y'}}}</b> · {esc(q)}<br>"
+                            + hover_num(info["tipo"], "y" if dim in ORDENADAS else "x") + "<extra></extra>")
+            fig.update_layout(barmode="stack")
+            (fig.update_yaxes if dim in ORDENADAS else fig.update_xaxes)(**eixo_fmt(info["tipo"]))
+            fig = estilo(fig, altura_exp, horizontal=dim not in ORDENADAS, legenda=True)
+        else:
+            tq = agregar(base_exp[base_exp[dim].isin(membros)], [dim, quebra])[met].unstack(quebra).reindex(membros)
+            tq = tq[[q for q in CORES_DIM[quebra] if q in tq.columns]]
+            texto_cel = {"pct": "%{z:.1f}%", "brl": "R$ %{z:,.0f}", "brl2": "R$ %{z:,.2f}", "int": "%{z:,.0f}",
+                         "dec": "%{z:.2f}"}[info["tipo"]]
+            fig = go.Figure(go.Heatmap(
+                z=tq.values, x=list(tq.columns), y=[str(i) for i in tq.index], colorscale=ESCALA_SEQ,
+                xgap=3, ygap=3,
+                hovertemplate="<b>%{y}</b> · %{x}<br>" + texto_cel + "<extra></extra>",
+                colorbar=dict(thickness=10, outlinewidth=0, tickfont=dict(size=11, color=TEXTO_3))))
+            rotular_celulas(fig, tq.values, list(tq.columns), [str(i) for i in tq.index],
+                            lambda v: fmt(v, info["tipo"]))
+            fig.update_yaxes(autorange="reversed")
+            fig = estilo(fig, max(H_M, 36 * len(tq) + 60))
+            fig.update_yaxes(tickfont=dict(size=12, color=TEXTO_2), showgrid=False)
+        evento = plot(fig, key=chave_exp, selecionavel=True)
+        if dim == "produto":
+            nota("Somente produtos com pelo menos 10 pedidos no recorte, para evitar conclusões sobre amostras pequenas.")
+        if dim == "motivo_devolucao":
+            nota("Considera apenas pedidos devolvidos.")
+
+        filtros_sel = []
+        for p in pontos_selecionados(evento):
+            cd = p.get("customdata")
+            if isinstance(cd, (list, tuple)) and len(cd) == 2:
+                filtros_sel.append((cd[0], cd[1]))
+            elif cd is not None:
+                filtros_sel.append((cd[0] if isinstance(cd, (list, tuple)) else cd, None))
+            elif p.get("y") is not None and p.get("x") is not None and quebra and met not in ADITIVAS:
+                filtros_sel.append((p["y"], p["x"]))
+
+    c = st.columns([1.6, 1], gap="small")
+    with c[0]:
+        with card("exp_tabela"):
+            cabecalho(f"Tabela por {dim_nome.lower()}", "Todas as métricas para os itens exibidos no gráfico")
+            vis = t.copy()
+            vis.index = vis.index.astype(str)
+            vis = vis[["pedidos", "receita", "margem", "margem_pct", "margem_real_pct", "ticket", "desconto_pct",
+                       "frete_pct", "taxa_dev", "prazo"]].rename(columns={k2: METRICAS[k2]["nome"] for k2 in METRICAS})
+            vis = vis.reset_index().rename(columns={dim: dim_nome})
+            st.dataframe(vis, hide_index=True, height=min(420, 38 * len(vis) + 40),
+                         column_config={col: st.column_config.NumberColumn(col, format="localized")
+                                        for col in vis.columns if col != dim_nome}, key="exp_df")
+            st.download_button("Exportar CSV", csv_bytes(vis), file_name=f"resumo_{dim}.csv", mime="text/csv",
+                               key="exp_csv")
+    with c[1]:
+        with card("exp_detalhe"):
+            if filtros_sel:
+                m = pd.Series(False, index=base_exp.index)
+                for membro, q in filtros_sel:
+                    cond = base_exp[dim].astype(str) == str(membro)
+                    if q is not None and quebra:
+                        cond &= base_exp[quebra] == q
+                    m |= cond
+                sel = base_exp[m]
+                rotulo_sel = ", ".join(sorted({f"{a} · {b}" if b else str(a) for a, b in filtros_sel}))
+                cabecalho("Pedidos da seleção", f"{rotulo_sel}: {inteiro(len(sel))} pedidos, margem de "
+                          f"{pct(agregar(sel).iloc[0].margem_pct)}")
+                tabela_pedidos(sel, "selecao", altura=330)
+            else:
+                cabecalho("Pedidos da seleção", "Clique numa barra ou célula do gráfico acima para listar os pedidos.")
+
+# ======================================================================
+# CANAIS
+# ======================================================================
+with abas[2]:
+    tc = agregar(df, "canal")
+    c = st.columns([1.35, 1], gap="small")
+    with c[0]:
+        with card("custos_canal"):
+            cabecalho("Custos por canal", "CMV e frete em % da receita líquida; desconto em % da receita bruta")
+            ordem = tc.sort_values("frete_pct").index
+            fig = make_subplots(rows=1, cols=3, shared_yaxes=True, horizontal_spacing=0.05,
+                                subplot_titles=("CMV", "Frete", "Desconto"))
+            for i, col in enumerate(["cmv_pct", "frete_pct", "desconto_pct"], start=1):
+                fig.add_bar(y=list(ordem), x=tc.loc[ordem, col], orientation="h", row=1, col=i, showlegend=False,
+                            marker_color=[COR_FOCO if ch == "Marketplace" else COR_BASE for ch in ordem],
+                            text=[pct(v) for v in tc.loc[ordem, col]], textposition="outside",
+                            textfont=dict(size=11, color=TEXTO_2),
+                            hovertemplate="<b>%{y}</b><br>%{x:.2f}%<extra></extra>")
+                fig.update_xaxes(range=[0, tc[col].max() * 1.45], showticklabels=False, row=1, col=i)
+            estilo(fig, H_M + 40, horizontal=True)
+            fig.update_xaxes(showgrid=False)
+            fig.update_annotations(font=dict(size=12, color=TEXTO_2))
+            fig.update_layout(margin=dict(t=28))
+            plot(fig)
+            if len(tc) > 1:
+                amp = tc.max() - tc.min()
+                insight(f"Entre os canais, o CMV varia {num(amp['cmv_pct'])} p.p. e o desconto {num(amp['desconto_pct'])} p.p. "
+                        f"O frete vai de {pct(tc['frete_pct'].min())} a {pct(tc['frete_pct'].max())} da receita, "
+                        f"com o maior peso em {tc['frete_pct'].idxmax()}.")
+    with c[1]:
+        with card("mapa_canais"):
+            cabecalho("Receita e margem por canal e categoria",
+                      "Área = receita líquida. Cor = margem: rosa abaixo da média do recorte, ciano acima. "
+                      "Clique num canal para abrir as categorias.")
+            tcc = agregar(df, ["canal", "categoria"])
+            media = K.margem_pct
+            # Raiz explícita e valores de cada pai somados dos filhos: com branchvalues="total", um pai
+            # menor que a soma dos filhos (arredondamento) faz o Plotly não desenhar o bloco.
+            ids, rotulos, pais, valores, margens, extra = ["Todos"], ["Todos os canais"], [""], [0.0], [np.nan], [None]
+            for ch in [x for x in COR_CANAL if x in tc.index]:
+                cats = [x for x in COR_CATEGORIA if (ch, x) in tcc.index]
+                soma_ch = float(sum(tcc.loc[(ch, cat), "receita"] for cat in cats))
+                ids.append(ch)
+                rotulos.append(ch)
+                pais.append("Todos")
+                valores.append(soma_ch)
+                margens.append(tc.loc[ch, "margem_pct"])
+                extra.append([brl_c(soma_ch), pct(tc.loc[ch, "margem_pct"])])
+                valores[0] += soma_ch
+                for cat in cats:
+                    linha = tcc.loc[(ch, cat)]
+                    ids.append(f"{ch} / {cat}")
+                    rotulos.append(cat)
+                    pais.append(ch)
+                    valores.append(float(linha["receita"]))
+                    margens.append(linha["margem_pct"])
+                    extra.append([brl_c(linha["receita"]), pct(linha["margem_pct"])])
+            extra[0] = [brl_c(valores[0]), pct(media)]
+            desvio = max(float(np.nanmax(np.abs(np.array(margens[1:], dtype=float) - media))), 0.5)
+            # Cores calculadas aqui, não pela escala do Plotly: com escala contínua ele ignora a cor da
+            # raiz e pinta um retângulo cinza atrás de todos os blocos.
+            posicoes = [min(max((m - media) / (2 * desvio) + 0.5, 0.0), 1.0) for m in margens[1:]]
+            cores = ["rgba(0,0,0,0)"] + sample_colorscale(ESCALA_DIV, posicoes)
+            fig = go.Figure(go.Treemap(
+                ids=ids, labels=rotulos, parents=pais, values=valores, branchvalues="total", customdata=extra,
+                marker=dict(colors=cores, line=dict(color=ROXO_ESCURO, width=2), cornerradius=6),
+                texttemplate="<b>%{label}</b><br>%{customdata[0]}<br>%{customdata[1]}",
+                textfont=dict(size=12, color="#FFFFFF"),
+                hovertemplate="<b>%{label}</b><br>Receita: %{customdata[0]}<br>Margem: %{customdata[1]}<extra></extra>",
+                pathbar=dict(visible=True, textfont=dict(color=TEXTO_2)), tiling=dict(pad=3), maxdepth=3))
+            fig.update_layout(height=H_M + 10, paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=26, b=0),
+                              font=dict(family="Inter, Helvetica, Arial, sans-serif", color=TEXTO_2),
+                              hoverlabel=dict(bgcolor=ROXO_AMEIXA, bordercolor=BORDA_FORTE, font=dict(color=TEXTO)),
+                              separators=",.", uniformtext=dict(minsize=10, mode="hide"))
+            plot(fig)
+            st.markdown(f'<div class="legenda-div"><span>{pct(media - desvio)}</span><div class="barra-div"></div>'
+                        f'<span>{pct(media + desvio)}</span></div>'
+                        f'<div class="nota" style="text-align:center">Margem de contribuição; centro da escala = '
+                        f'média do recorte ({pct(media)})</div>', unsafe_allow_html=True)
+
+    with card("margem_mes_canal"):
+        c2 = st.columns([3, 1], vertical_alignment="bottom")
+        with c2[0]:
+            cabecalho("Margem de contribuição por mês", "Marketplace comparado aos demais canais somados")
+        todos = c2[1].toggle("Abrir todos os canais", key="canal_todos")
+        grupo = df["canal"] if todos else np.where(df["canal"] == "Marketplace", "Marketplace", "Demais canais")
+        cores_g = COR_CANAL if todos else {"Demais canais": COR_BASE, "Marketplace": COR_FOCO}
+        tm = agregar(df.assign(grupo=grupo), ["grupo", "mes_rotulo"])["margem_pct"].unstack("grupo")
+        fig = go.Figure()
+        for gname in [x for x in cores_g if x in tm.columns]:
+            fig.add_scatter(x=[str(i) for i in tm.index], y=tm[gname], name=gname, mode="lines+markers",
+                            line=dict(color=cores_g[gname], width=2.5),
+                            marker=dict(size=8, color=cores_g[gname], line=dict(color=ROXO_ESCURO, width=2)),
+                            hovertemplate=f"{esc(gname)}: %{{y:.1f}}%<extra></extra>")
+        fig.update_layout(hovermode="x unified")
+        fig.update_yaxes(ticksuffix="%")
+        plot(estilo(fig, H_M, legenda=True))
+
+    with st.expander("Ver tabela por canal"):
+        vis = tc[["pedidos", "receita", "margem_pct", "margem_real_pct", "ticket", "cmv_pct", "frete_pct",
+                  "desconto_pct", "taxa_dev", "prazo"]].rename(columns={k2: METRICAS[k2]["nome"] for k2 in METRICAS})
+        st.dataframe(vis.reset_index().rename(columns={"canal": "Canal"}), hide_index=True,
+                     column_config={col: st.column_config.NumberColumn(col, format="localized") for col in vis.columns})
+
+# ======================================================================
+# DESCONTO
+# ======================================================================
+with abas[3]:
+    fx = agregar(df, "faixa_desconto")
+    fx["margem_pedido"] = fx["margem"] / fx["pedidos"]
+    c = st.columns(2, gap="small")
+    with c[0]:
+        with card("margem_faixa_desc"):
+            cabecalho("Margem por pedido, por faixa de desconto", "Margem de contribuição média por pedido")
+            plot(colunas([str(i) for i in fx.index], fx["margem_pedido"], "brl2", altura=H_P,
+                         hover_extra=[f"{inteiro(p)} pedidos" for p in fx["pedidos"]]))
+    with c[1]:
+        with card("itens_faixa_desc"):
+            cabecalho("Itens por pedido, por faixa de desconto", "Quantidade média de itens")
+            plot(colunas([str(i) for i in fx.index], fx["itens_pedido"], "dec", altura=H_P,
+                         hover_extra=[f"{inteiro(p)} pedidos" for p in fx["pedidos"]]))
+    rec = REC.get("Desconto")
+    if rec:
+        with card("insight_desconto"):
+            insight(rec["texto"], rec["acao"])
+
+    tmes = agregar(df, "mes_rotulo")
+    tmes = tmes[tmes["pedidos"] > 0]
+    c = st.columns(2, gap="small")
+    with c[0]:
+        with card("desconto_mes"):
+            cabecalho("Desconto por mês", "Em % da receita bruta")
+            pico = tmes["desconto_pct"].idxmax()
+            plot(colunas([str(i) for i in tmes.index], tmes["desconto_pct"], "pct", foco={str(pico)}, altura=H_P,
+                         rotulos=len(tmes) <= 13, hover_extra=[f"{inteiro(p)} pedidos" for p in tmes["pedidos"]]))
+    with c[1]:
+        with card("margem_mes"):
+            cabecalho("Margem de contribuição por mês", "Em % da receita líquida")
+            pior = str(tmes["margem_pct"].idxmin())
+            fig = go.Figure(go.Scatter(
+                x=[str(i) for i in tmes.index], y=tmes["margem_pct"], mode="lines+markers",
+                line=dict(color=VIOLETA, width=2.5),
+                marker=dict(size=9, line=dict(color=ROXO_ESCURO, width=2),
+                            color=[COR_FOCO if str(i) == pior else COR_BASE for i in tmes.index]),
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}%<extra></extra>"))
+            fig.add_annotation(x=pior, y=tmes.loc[tmes.index.astype(str) == pior, "margem_pct"].iloc[0],
+                               text=pct(tmes["margem_pct"].min()), showarrow=False, yshift=-16,
+                               font=dict(size=11, color=TEXTO))
+            fig.update_yaxes(ticksuffix="%", tickformat=".1f")
+            plot(estilo(fig, H_P))
+    rec = REC.get("Sazonalidade")
+    if rec:
+        with card("insight_sazonal"):
+            insight(rec["texto"], rec["acao"])
+
+    with card("desc25_canal"):
+        cabecalho("Pedidos com desconto acima de 25%, por canal", "Participação nos pedidos do canal")
+        tcd = df.assign(acima=df["desconto_pct"] > 25).groupby("canal").agg(
+            share=("acima", "mean"), pedidos=("acima", "sum"),
+            valor=("desconto_reais", lambda s: s[df.loc[s.index, "desconto_pct"] > 25].sum()))
+        tcd["share"] *= 100
+        fig = barras_h(tcd, "share", "pct", foco={tcd["share"].idxmax()}, altura=H_P,
+                       customdata=[[i, inteiro(tcd.loc[i, "pedidos"]), brl_c(tcd.loc[i, "valor"])]
+                                   for i in tcd.sort_values("share").index])
+        fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f}% dos pedidos<br>%{customdata[1]} pedidos"
+                                        "<br>%{customdata[2]} em desconto<extra></extra>")
+        plot(fig)
+
+# ======================================================================
+# FRETE E ENTREGA
+# ======================================================================
+with abas[4]:
+    c = st.columns(2, gap="small")
+    with c[0]:
+        with card("regra_frete"):
+            cabecalho("Pedidos com frete grátis", "Por canal e faixa de ticket")
+            grupo = np.select([df["canal"] == "Marketplace", df["receita_liquida"] >= 250],
+                              ["Marketplace (qualquer ticket)", "Demais canais, ticket a partir de R$ 250"],
+                              default="Demais canais, ticket abaixo de R$ 250")
+            tg = df.assign(grupo=grupo).groupby("grupo").agg(gratis=("frete_gratis", "mean"), pedidos=("order_id", "count"))
+            tg["gratis"] *= 100
+            fig = barras_h(tg, "gratis", "pct", foco={"Marketplace (qualquer ticket)"}, altura=H_P - 60,
+                           customdata=[[i, inteiro(tg.loc[i, "pedidos"])] for i in tg.sort_values("gratis").index])
+            fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:.1f}% com frete grátis<br>%{customdata[1]} pedidos<extra></extra>")
+            fig.update_xaxes(range=[0, 125])
+            plot(fig)
+            if set(tg["gratis"].round(6)) == {0.0, 100.0} and len(tg) == 3:
+                nota("A regra observada é exata: frete grátis em 100% dos pedidos a partir de R$ 250 fora do "
+                     "Marketplace e em nenhum pedido do Marketplace.")
+            insight_do_tema("Frete")
+    with c[1]:
+        with card("prazo_canal"):
+            cabecalho("Prazo médio de entrega por canal", "Dias entre pedido e entrega")
+            tp = agregar(df, "canal")
+            plot(barras_h(tp, "prazo", "dec", foco={tp["prazo"].idxmax()}, altura=H_P - 60))
+            mk_ = df[df["canal"] == "Marketplace"]
+            fora_ = df[df["canal"] != "Marketplace"]
+            if len(mk_) and len(fora_):
+                dif = mk_["tempo_entrega_real"].mean() - fora_["tempo_entrega_real"].mean()
+                if dif >= 2:
+                    at_mk = (mk_["motivo_devolucao"] == "Atraso na entrega").mean() * 100
+                    at_fora = (fora_["motivo_devolucao"] == "Atraso na entrega").mean() * 100
+                    insight(f"O Marketplace entrega em {num(mk_['tempo_entrega_real'].mean())} dias em média, "
+                            f"{num(dif)} dias a mais que os demais canais. Devoluções por atraso: "
+                            f"{pct(at_mk)} dos pedidos do Marketplace, contra {pct(at_fora)} nos demais.",
+                            "Revisar o SLA logístico do Marketplace e acompanhar o prazo semanalmente.")
+
+    ft = agregar(df, "faixa_ticket")
+    c = st.columns(2, gap="small")
+    with c[0]:
+        with card("frete_ticket"):
+            cabecalho("Frete por faixa de ticket", "Em % da receita líquida")
+            plot(colunas([str(i) for i in ft.index], ft["frete_pct"], "pct", foco={str(ft.index[0])}, altura=H_P,
+                         hover_extra=[f"{inteiro(p)} pedidos" for p in ft["pedidos"]]))
+    with c[1]:
+        with card("margem_ticket"):
+            cabecalho("Margem de contribuição por faixa de ticket", "Em % da receita líquida")
+            plot(colunas([str(i) for i in ft.index], ft["margem_pct"], "pct", foco={str(ft.index[0])}, altura=H_P,
+                         hover_extra=[f"{inteiro(p)} pedidos" for p in ft["pedidos"]]))
+    rec = REC.get("Ticket")
+    if rec:
+        with card("insight_ticket"):
+            insight(rec["texto"], rec["acao"])
+
+    eleg = df[df["mk_elegivel_nao_subsidiado"]]
+    with card("frete_mk_mes"):
+        if len(eleg):
+            cabecalho("Frete pago pelo Marketplace em pedidos a partir de R$ 250",
+                      f"Por mês. Total no período: {brl(eleg['custo_frete'].sum())} em {inteiro(len(eleg))} pedidos")
+            tf = eleg.groupby("mes_rotulo", observed=True).agg(frete=("custo_frete", "sum"), pedidos=("order_id", "count"))
+            fig = colunas([str(i) for i in tf.index], tf["frete"], "brl", altura=H_P, rotulos=len(tf) <= 13,
+                          hover_extra=[f"{inteiro(p)} pedidos" for p in tf["pedidos"]])
+            fig.update_traces(marker_color=COR_FOCO)
+            plot(fig)
+        else:
+            cabecalho("Frete pago pelo Marketplace em pedidos a partir de R$ 250")
+            nota("Não há pedidos do Marketplace a partir de R$ 250 no recorte atual.")
+
+# ======================================================================
+# DEVOLUÇÕES
+# ======================================================================
+with abas[5]:
+    dev = df[df["devolvido"]]
+    if dev.empty:
+        with card("sem_dev"):
+            cabecalho("Devoluções")
+            nota("Não há pedidos devolvidos no recorte atual (verifique o filtro 'Incluir devolvidos').")
+    else:
+        c = st.columns(2, gap="small")
+        with c[0]:
+            with card("motivos"):
+                cabecalho("Devoluções por motivo", "Pedidos devolvidos; defeito e atraso em destaque")
+                tmv = dev.groupby("motivo_devolucao").agg(pedidos=("order_id", "count"),
+                                                          custo=("custo_produto", "sum"), frete=("custo_frete", "sum"))
+                tmv["custo"] += tmv["frete"]
+                fig = barras_h(tmv, "pedidos", "int", foco=set(OPERACIONAIS), altura=H_P,
+                               customdata=[[i, brl_c(tmv.loc[i, "custo"])] for i in tmv.sort_values("pedidos").index])
+                fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.0f} pedidos<br>%{customdata[1]} em CMV e frete<extra></extra>")
+                plot(fig)
+                insight_do_tema("Devolução")
+        with c[1]:
+            with card("dev_prazo"):
+                cabecalho("Taxa de devolução por prazo de entrega", "Pedidos devolvidos sobre pedidos da faixa")
+                tpz = agregar(df, "faixa_prazo")
+                plot(colunas([str(i) for i in tpz.index], tpz["taxa_dev"], "pct", altura=H_P,
+                             hover_extra=[f"{inteiro(p)} pedidos" for p in tpz["pedidos"]]))
+                curtas = df.loc[df["tempo_entrega_real"] <= 7, "devolvido"].mean() * 100
+                longas = df.loc[df["tempo_entrega_real"] > 7, "devolvido"].mean() * 100
+                if pd.notna(curtas) and pd.notna(longas):
+                    if longas - curtas >= 0.5:
+                        insight(f"Entregas acima de 7 dias têm devolução de {pct(longas)}, contra {pct(curtas)} nas de "
+                                f"até 7 dias ({num(longas - curtas)} p.p.). A relação é fraca, mas consistente com o "
+                                f"peso das devoluções por atraso.")
+                    else:
+                        insight(f"Sem diferença relevante entre entregas acima de 7 dias ({pct(longas)}) e até 7 dias "
+                                f"({pct(curtas)}).")
+
+        with card("dev_mapa"):
+            cabecalho("Taxa de devolução por canal e categoria", "Em % dos pedidos de cada combinação; mais claro = maior")
+            tq = agregar(df, ["canal", "categoria"])["taxa_dev"].unstack("categoria")
+            tq = tq.reindex([ch for ch in COR_CANAL if ch in tq.index])[[x for x in COR_CATEGORIA if x in tq.columns]]
+            fig = go.Figure(go.Heatmap(
+                z=tq.values, x=list(tq.columns), y=list(tq.index), colorscale=ESCALA_SEQ, xgap=3, ygap=3,
+                hovertemplate="<b>%{y}</b> · %{x}<br>%{z:.1f}%<extra></extra>",
+                colorbar=dict(thickness=10, outlinewidth=0, ticksuffix="%", tickfont=dict(size=11, color=TEXTO_3))))
+            rotular_celulas(fig, tq.values, list(tq.columns), list(tq.index), pct)
+            fig.update_yaxes(autorange="reversed")
+            fig = estilo(fig, H_M)
+            fig.update_yaxes(tickfont=dict(size=12, color=TEXTO_2), showgrid=False)
+            plot(fig)
+
+# ======================================================================
+# ALERTAS
+# ======================================================================
+ALERTAS = {
+    "Margem negativa": lambda d: d["margem_negativa"],
+    "Desconto acima de 30%": lambda d: d["desconto_pct"] > 30,
+    "Marketplace pagando frete a partir de R$ 250": lambda d: d["mk_elegivel_nao_subsidiado"],
+    "Devolução por defeito ou atraso": lambda d: d["devolvido"] & d["motivo_devolucao"].isin(OPERACIONAIS),
+}
+with abas[6]:
+    with card("alertas"):
+        cabecalho("Pedidos em alerta", "Lista para ação diária. Ordene pelo cabeçalho da tabela e exporte em CSV.")
+        resumo = []
+        for nome_a, regra in ALERTAS.items():
+            sub = df[regra(df)]
+            impacto = {"Margem negativa": sub["margem_contribuicao"].sum(),
+                       "Desconto acima de 30%": sub["desconto_reais"].sum(),
+                       "Marketplace pagando frete a partir de R$ 250": sub["custo_frete"].sum(),
+                       "Devolução por defeito ou atraso": sub["custo_produto"].sum() + sub["custo_frete"].sum()}[nome_a]
+            resumo.append(f'<div class="stat"><div class="r">{esc(nome_a)}</div>'
+                          f'<div class="v">{inteiro(len(sub))} pedidos</div><div class="r">{brl_c(impacto)}</div></div>')
+        st.markdown('<div class="stats">' + "".join(resumo) + "</div>", unsafe_allow_html=True)
+        escolhidos = st.pills("Tipos de alerta", list(ALERTAS), selection_mode="multi", default=["Margem negativa"],
+                              key="alertas_tipos")
+        if escolhidos:
+            mascara = pd.Series(False, index=df.index)
+            motivos = pd.Series("", index=df.index)
+            for nome_a in escolhidos:
+                r = ALERTAS[nome_a](df)
+                mascara |= r
+                motivos = motivos.where(~r, motivos.where(motivos == "", motivos + "; ") + nome_a)
+            lista = df[mascara].assign(alertas=motivos[mascara])
+            nota(f"{inteiro(len(lista))} pedidos, ordenados da menor para a maior margem.")
+            t = lista[["alertas"] + list(COLS_PEDIDO)].rename(columns={**COLS_PEDIDO, "alertas": "Alertas"})
+            t = t.sort_values("Margem (R$)")
+            cfg = {col: st.column_config.NumberColumn(col, format="localized") for col in t.columns if t[col].dtype.kind in "fi"}
+            cfg["Data"] = st.column_config.DatetimeColumn("Data", format="DD/MM/YYYY")
+            st.dataframe(t, hide_index=True, height=440, column_config=cfg, key="alertas_df")
+            st.download_button("Exportar CSV", csv_bytes(t), file_name="pedidos_em_alerta.csv", mime="text/csv",
+                               key="alertas_csv")
+        else:
+            nota("Selecione ao menos um tipo de alerta.")
+
+# ======================================================================
+# SIMULADOR
+# ======================================================================
+with abas[7]:
+    c = st.columns([1, 2], gap="small")
+    with c[0]:
+        with card("sim_controles"):
+            cabecalho("Alavancas", "Os cálculos usam o recorte de filtros atual")
+            lev_frete = st.slider("Frete do Marketplace a partir de R$ 250 subsidiado", 0, 100, 100, 5,
+                                  format="%d%%", key="sim_frete")
+            teto = st.slider("Teto de desconto por pedido", 10, 40, 25, 1, format="%d%%", key="sim_teto")
+            adesao = st.slider("Adesão ao teto", 0, 100, 80, 5, format="%d%%", key="sim_adesao")
+            red_dev = st.slider("Redução das devoluções por defeito ou atraso", 0, 100, 40, 5, format="%d%%",
+                                key="sim_dev")
+            nota("Premissas: o subsídio elimina o frete desses pedidos; o teto recupera a parte do desconto acima "
+                 "dele, ponderada pela adesão, sem perda de volume; cada devolução evitada deixa de perder CMV e "
+                 "frete. Valores referentes ao período filtrado.")
+    ganho_frete = df.loc[df["mk_elegivel_nao_subsidiado"], "custo_frete"].sum() * lev_frete / 100
+    m_teto = df["desconto_pct"] > teto
+    ganho_desc = ((df.loc[m_teto, "desconto_pct"] - teto) / 100 * df.loc[m_teto, "receita_bruta"]).sum() * adesao / 100
+    dev_op = df[df["devolvido"] & df["motivo_devolucao"].isin(OPERACIONAIS)]
+    ganho_dev = (dev_op["custo_produto"].sum() + dev_op["custo_frete"].sum()) * red_dev / 100
+    mc_nova = (K.margem + ganho_frete + ganho_desc) / K.receita * 100
+    mr_nova = ((K.margem_real + ganho_frete + ganho_desc + ganho_dev) / K.receita_real * 100
+               if K.receita_real else np.nan)
+    with c[1]:
+        with card("sim_resultado"):
+            cabecalho("Resultado projetado")
+            r = st.columns(3, gap="small")
+            for col, rot, val, sub in [
+                (r[0], "Margem de contribuição", pct(mc_nova, 2), f"Atual {pct(K.margem_pct, 2)} · +{num(mc_nova - K.margem_pct, 2)} p.p."),
+                (r[1], "Margem realizada", pct(mr_nova, 2), f"Atual {pct(K.margem_real_pct, 2)} · +{num(mr_nova - K.margem_real_pct, 2)} p.p."),
+                (r[2], "Ganho total no período", brl_c(ganho_frete + ganho_desc + ganho_dev),
+                 f"{inteiro(len(dev_op) * red_dev / 100)} devoluções evitadas")]:
+                col.markdown(f'<div class="stat"><div class="r">{esc(rot)}</div><div class="v">{val}</div>'
+                             f'<div class="r">{sub}</div></div>', unsafe_allow_html=True)
+            topo = K.margem_real + ganho_frete + ganho_desc + ganho_dev
+            fig = go.Figure(go.Waterfall(
+                measure=["absolute", "relative", "relative", "relative", "total"],
+                x=["Margem realizada atual", "Subsídio de frete", "Teto de desconto", "Menos devoluções", "Projetada"],
+                y=[K.margem_real, ganho_frete, ganho_desc, ganho_dev, topo],
+                text=[brl_c(v) for v in [K.margem_real, ganho_frete, ganho_desc, ganho_dev, topo]],
+                textposition="outside", textfont=dict(size=11, color=TEXTO_2),
+                connector=dict(line=dict(color=BORDA_FORTE, width=1)),
+                increasing=dict(marker=dict(color=BOM)), totals=dict(marker=dict(color=VIOLETA)),
+                decreasing=dict(marker=dict(color=ROSA)), hovertemplate="%{x}: %{text}<extra></extra>"))
+            fig.update_yaxes(range=[0, max(topo, K.margem_real) * 1.15], tickprefix="R$ ", tickformat="~s")
+            plot(estilo(fig, H_M))
+            nota("A ponte parte da margem realizada porque a alavanca de devoluções só existe nessa métrica. "
+                 "Na margem de contribuição entram apenas frete e desconto.")
+
+st.markdown('<div class="nota" style="margin-top:20px">Definições: margem de contribuição = receita líquida − CMV − '
+            'frete, sobre pedidos aprovados. Margem realizada considera que pedidos devolvidos perdem a receita e '
+            'mantêm CMV e frete. Fonte: vendas_tratada.csv.</div>', unsafe_allow_html=True)
