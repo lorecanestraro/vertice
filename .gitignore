@@ -8,3 +8,10 @@ vendas.xlsx
 atendimento.xlsx
 clientes.xlsx
 estoque.xlsx
+
+# Cadastro de clientes tratado: não é usado pelo app (não reconcilia com vendas)
+clientes_tratado.csv
+
+# Credenciais da API do Elo Agents (nunca versionar)
+.streamlit/secrets.toml
+.env
