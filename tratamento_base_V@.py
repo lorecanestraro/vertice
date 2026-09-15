@@ -15,7 +15,13 @@ Opcional (só se for usar os indicadores dessas bases):
 SAÍDAS
 ------
     vendas_tratada.csv       base de pedidos aprovados + colunas derivadas
+                             (+ subcategoria, fornecedor, lead time e situação
+                              atual do estoque, quando PROCESSAR_OUTRAS_BASES)
     calendario_sazonal.csv   índice mensal de volume/receita/itens
+    estoque_tratado.csv      cadastro de SKUs          (PROCESSAR_OUTRAS_BASES)
+    atendimento_tratado.csv  chamados do SAC            (PROCESSAR_OUTRAS_BASES)
+    clientes_tratado.csv     cadastro sem dados pessoais (PROCESSAR_OUTRAS_BASES;
+                             não reconcilia com vendas, não versionar)
 
 DEFINIÇÃO DE MARGEM ADOTADA
 ---------------------------
@@ -170,13 +176,77 @@ df["idx_sazonal"] = df["mes"].map(dict(zip(range(1, 13), cal["idx_pedidos"].valu
 # 6. OUTRAS BASES (opcional)
 # ======================================================================
 if PROCESSAR_OUTRAS_BASES:
-    at = ler_base("atendimento.xlsx")
+    # --- 6.1 Estoque: cadastro de SKUs ----------------------------------
+    # Confiável como cadastro: SKU, nome e categoria batem 100% com vendas.
+    # NÃO usar custo_unitario nem preco_venda_sugerido junto com vendas: não
+    # reconciliam com custo_produto/quantidade nem com preco_unitario (o preço
+    # de um mesmo SKU varia de pedido para pedido). Situação, estoque físico e
+    # data da última entrada são a posição na data da extração, não na do pedido.
+    est = ler_base("estoque.xlsx")
+    est["data_ultima_entrada"] = pd.to_datetime(est["data_ultima_entrada"], errors="coerce")
+    print("\n--- ESTOQUE ---")
+    print(f"SKUs: {len(est):,} | duplicados: {est['sku_id'].duplicated().sum()}")
+    print(f"SKUs vendidos presentes no estoque: {df['sku_id'].drop_duplicates().isin(est['sku_id']).mean()*100:.1f}%")
+    cad = df[["sku_id", "produto", "categoria", "custo_produto", "quantidade"]].merge(est, on="sku_id")
+    print(f"nome e categoria iguais aos de vendas: "
+          f"{((cad['produto'] == cad['nome_produto']) & (cad['categoria_x'] == cad['categoria_y'])).mean()*100:.1f}%")
+    razao = (cad["custo_produto"] / cad["quantidade"] / cad["custo_unitario"]).median()
+    print(f"custo unitário vendas / estoque (mediana): {razao:.2f}  <- não reconcilia, não usar")
+    print(f"disponível = físico - reservado: {(est['estoque_disponivel'] == est['estoque_fisico'] - est['estoque_reservado']).all()}")
+    print(f"posição do estoque: última entrada em {est['data_ultima_entrada'].max().date()}")
+    est.to_csv("estoque_tratado.csv", index=False, encoding="utf-8-sig")
+
+    df = df.merge(est[["sku_id", "subcategoria", "fornecedor_id", "lead_time_reposicao", "status_disponibilidade"]]
+                  .rename(columns={"status_disponibilidade": "situacao_estoque_atual"}), on="sku_id", how="left")
+
+    # --- 6.2 Atendimento: chamados do SAC -------------------------------
+    # Válido por data (volume mensal acompanha o de pedidos). O vínculo com o
+    # pedido NÃO é confiável: só ~35% dos order_id existem em vendas, ~14% dos
+    # chamados abrem antes do pedido e a categoria não se relaciona com a
+    # devolução. Usar só agregado por data, canal de entrada e motivo.
+    at = ler_base("atendimento.xlsx").dropna(subset=["ticket_id"])
     for c in ["categoria_problema", "canal_entrada", "texto_cliente", "status_atendimento"]:
         if c in at.columns:
             at[c] = corrigir_encoding(at[c])
     at["data_abertura"] = pd.to_datetime(at["data_abertura"], errors="coerce")
+    at["data_fechamento"] = pd.to_datetime(at["data_fechamento"], errors="coerce")
+    # Chamados ainda abertos vêm com a data da extração no fechamento.
+    pendente = at["status_atendimento"].isin(["Aberto", "Em Análise"])
+    at.loc[pendente, "data_fechamento"] = pd.NaT
+    at["pendente"] = pendente
+    at["duracao_horas"] = (at["data_fechamento"] - at["data_abertura"]).dt.total_seconds() / 3600
+    datas_pedido = vendas.set_index("order_id")["data_pedido"]
+    at["pedido_na_base_vendas"] = at["order_id"].isin(datas_pedido.index)
+    at["pedido_aprovado"] = at["order_id"].isin(df["order_id"])
+    at["aberto_antes_do_pedido"] = at["data_abertura"] < at["order_id"].map(datas_pedido)
+    print("\n--- ATENDIMENTO ---")
+    print(f"chamados: {len(at):,} | de {at['data_abertura'].min().date()} a {at['data_abertura'].max().date()}")
+    print(f"com pedido na base de vendas: {at['pedido_na_base_vendas'].mean()*100:.1f}% "
+          f"| abertos antes do pedido (entre esses): "
+          f"{at.loc[at['pedido_na_base_vendas'], 'aberto_antes_do_pedido'].mean()*100:.1f}%  <- vínculo não confiável")
+    print(f"custo por chamado único por canal de entrada: {(at.groupby('canal_entrada')['custo_operacional_ticket'].nunique() == 1).all()}")
     at.to_csv("atendimento_tratado.csv", index=False, encoding="utf-8-sig")
     print(f"atendimento_tratado.csv gerado ({len(at):,} linhas)")
+
+    # --- 6.3 Clientes: cadastro -----------------------------------------
+    # Dados pessoais removidos (nome, nascimento exato, cidade). Diagnóstico:
+    # 331 clientes para 24 mil pedidos, 1 cliente com ~40% dos pedidos e
+    # histórico/LTV sem relação com as vendas. Não usar no painel.
+    cli = ler_base("clientes.xlsx")
+    ref = pd.to_datetime(cli["data_cadastro"]).max()
+    idade = (ref - pd.to_datetime(cli["data_nascimento"], errors="coerce")).dt.days // 365
+    cli["faixa_etaria"] = pd.cut(idade, [0, 24, 34, 44, 54, 64, 150],
+                                 labels=["até 24", "25-34", "35-44", "45-54", "55-64", "65+"])
+    cli = cli.drop(columns=["nome_completo", "data_nascimento", "cidade"])
+    ped_cli = df["customer_id"].value_counts()
+    hist = cli.set_index("customer_id").join(ped_cli.rename("pedidos_base"), how="inner")
+    print("\n--- CLIENTES ---")
+    print(f"clientes: {len(cli):,} | com pedido aprovado: {len(hist):,}")
+    print(f"maior cliente: {ped_cli.iloc[0]/len(df)*100:.1f}% dos pedidos | 5 maiores: {ped_cli.head(5).sum()/len(df)*100:.1f}%")
+    print(f"correlação pedidos na base x total_pedidos_historico: "
+          f"{hist['pedidos_base'].corr(hist['total_pedidos_historico']):.2f}  <- não reconcilia, não usar")
+    cli.to_csv("clientes_tratado.csv", index=False, encoding="utf-8-sig")
+    print(f"clientes_tratado.csv gerado, sem dados pessoais ({len(cli):,} linhas)")
 
 
 # ======================================================================
