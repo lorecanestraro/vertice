@@ -31,18 +31,26 @@ import elo_agents
 # contra a superfície dos cartões (#211928): faixa de luminosidade,
 # separação para daltonismo entre vizinhos e contraste mínimo de 3:1.
 # ======================================================================
-PRETO_ARROXEADO = "#1A191E"     # fundo da página
-CINZA_MUITO_ESCURO = "#1C191F"  # barra de filtros e navegação
-ROXO_ESCURO = "#211928"         # cartões (superfície dos gráficos)
-ROXO_PROFUNDO = "#2B1A31"       # elementos elevados: big numbers, campos, recomendações
-ROXO_AMEIXA = "#321A3B"         # destaques: aba ativa, trilhas, cabeçalho de tabela
+# Tema claro pelo parâmetro ?tema=claro da URL (o botão do cabeçalho troca). Superfícies, bordas,
+# textos e destaques mudam; as cores de dados são as mesmas, com contraste de 3:1 ou mais nos dois fundos.
+TEMA_CLARO = st.query_params.get("tema") == "claro"
 
-BORDA = "#33243D"
-BORDA_FORTE = "#4B3658"
-GRADE = "#31243B"
-TEXTO = "#F3EEF7"
-TEXTO_2 = "#B9AFC4"
-TEXTO_3 = "#8F84A0"
+if TEMA_CLARO:
+    PRETO_ARROXEADO = "#F5F2F9"     # fundo da página
+    CINZA_MUITO_ESCURO = "#FFFFFF"  # barra de filtros e navegação
+    ROXO_ESCURO = "#FFFFFF"         # cartões (superfície dos gráficos)
+    ROXO_PROFUNDO = "#F7F3FC"       # elementos elevados: big numbers, campos, recomendações
+    ROXO_AMEIXA = "#EEE6F8"         # destaques: aba ativa, trilhas, cabeçalho de tabela
+    BORDA, BORDA_FORTE, GRADE = "#E5DDEF", "#CBBCDC", "#EFEAF5"
+    TEXTO, TEXTO_2, TEXTO_3 = "#1E1726", "#4E4459", "#6F6480"
+else:
+    PRETO_ARROXEADO = "#1A191E"     # fundo da página
+    CINZA_MUITO_ESCURO = "#1C191F"  # barra de filtros e navegação
+    ROXO_ESCURO = "#211928"         # cartões (superfície dos gráficos)
+    ROXO_PROFUNDO = "#2B1A31"       # elementos elevados: big numbers, campos, recomendações
+    ROXO_AMEIXA = "#321A3B"         # destaques: aba ativa, trilhas, cabeçalho de tabela
+    BORDA, BORDA_FORTE, GRADE = "#33243D", "#4B3658", "#31243B"
+    TEXTO, TEXTO_2, TEXTO_3 = "#F3EEF7", "#B9AFC4", "#8F84A0"
 
 VIOLETA = "#8B5CF6"
 ROSA = "#EC4899"
@@ -51,10 +59,12 @@ AMBAR = "#D97706"
 FUCSIA = "#C026D3"
 AZUL = "#3B82F6"
 LARANJA = "#EA580C"
-LILAS = "#C4B5FD"
-ROSA_CLARO = "#F9A8D4"
-BOM = "#34D399"
-RUIM = "#FB7185"
+if TEMA_CLARO:
+    LILAS, ROSA_CLARO = "#7C3AED", "#BE185D"          # destaques de texto
+    BOM, RUIM, AMBAR_TXT = "#059669", "#E11D48", "#B45309"
+else:
+    LILAS, ROSA_CLARO = "#C4B5FD", "#F9A8D4"
+    BOM, RUIM, AMBAR_TXT = "#34D399", "#FB7185", "#FBBF24"
 
 # Cor fixa por entidade, na ordem validada: um filtro nunca repinta quem sobra.
 COR_CANAL = {
@@ -72,8 +82,15 @@ TEMA_COR = {"Frete": CIANO, "Desconto": ROSA, "Ticket": AMBAR, "Devolução": FU
 COR_BASE = VIOLETA   # série única
 COR_FOCO = ROSA      # entidade em destaque numa série única
 COR_NEUTRA = "#6B5A7B"
-ESCALA_SEQ = [[0, "#7453D6"], [0.35, "#9270F5"], [0.7, "#B9A2FF"], [1, "#E4DAFF"]]
-ESCALA_DIV = [[0, ROSA], [0.5, "#5A4D66"], [1, CIANO]]
+# Sequencial do fundo para o destaque: no escuro os valores altos são claros; no claro, escuros.
+if TEMA_CLARO:
+    ESCALA_SEQ = [[0, "#EFE8FF"], [0.35, "#C9B6FC"], [0.7, "#9C78F5"], [1, "#6A3FD4"]]
+    DIV_MEIO = "#E4DCEC"
+else:
+    ESCALA_SEQ = [[0, "#7453D6"], [0.35, "#9270F5"], [0.7, "#B9A2FF"], [1, "#E4DAFF"]]
+    DIV_MEIO = "#5A4D66"
+ESCALA_DIV = [[0, ROSA], [0.5, DIV_MEIO], [1, CIANO]]
+TEXTO_CELULA = "#1E1726"  # rótulo escuro sobre células claras de mapas de calor e treemap
 
 H_P, H_M, H_G = 280, 330, 380  # alturas padrão dos gráficos
 
@@ -83,10 +100,10 @@ st.set_page_config(page_title="Vértice Retail | Rentabilidade", layout="wide",
 CSS = Template("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-:root { color-scheme: dark; }
+:root { color-scheme: $ESQUEMA; }
 .stApp { background-color: $PRETO_ARROXEADO !important; color: $TEXTO !important;
-   background-image: radial-gradient(900px 440px at 6% -10%, rgba(139,92,246,.20), transparent 62%),
-                     radial-gradient(760px 400px at 102% -4%, rgba(236,72,153,.13), transparent 60%) !important;
+   background-image: radial-gradient(900px 440px at 6% -10%, $BRILHO_1, transparent 62%),
+                     radial-gradient(760px 400px at 102% -4%, $BRILHO_2, transparent 60%) !important;
    background-attachment: fixed !important; }
 [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stMainBlockContainer"] {
    background: transparent !important; color: $TEXTO !important; }
@@ -120,9 +137,9 @@ html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, 
 .ponto { width:7px; height:7px; border-radius:50%; background:$BOM; box-shadow:0 0 0 3px rgba(52,211,153,.18); }
 
 /* cartões */
-div[class*="st-key-card_"] { background: linear-gradient(180deg, rgba(50,26,59,.45) 0%, rgba(33,25,40,0) 140px), $ROXO_ESCURO;
+div[class*="st-key-card_"] { background: linear-gradient(180deg, $CARD_TOPO 0%, rgba(0,0,0,0) 140px), $ROXO_ESCURO;
    border: 1px solid $BORDA; border-radius: 14px; padding: 16px 18px 14px; gap: .6rem;
-   box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 12px 32px rgba(0,0,0,.28); }
+   box-shadow: inset 0 1px 0 rgba(255,255,255,.03), $SOMBRA; }
 [data-testid="stColumn"] div[class*="st-key-card_"] { height: 100%; }
 div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radius: 12px; padding: 10px 16px 12px; }
 .card-titulo { font-size: 15px; font-weight: 600; color: $TEXTO; line-height: 1.35; display:flex; align-items:center; gap:9px; }
@@ -183,11 +200,11 @@ div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radi
 .stat .r { font-size:11px; color:$TEXTO_3; }
 .stat .v { font-size:18px; font-weight:700; color:$TEXTO; margin:2px 0; }
 .legenda-div { display:flex; align-items:center; gap:10px; font-size:11px; color:$TEXTO_3; margin-top:2px; }
-.barra-div { flex:1; height:8px; border-radius:999px; background: linear-gradient(90deg, $ROSA, #5A4D66, #0891B2); }
+.barra-div { flex:1; height:8px; border-radius:999px; background: linear-gradient(90deg, $ROSA, $DIV_MEIO, $CIANO); }
 
 /* insights do Elo Agents */
 .aviso { background: rgba(217,119,6,.10); border:1px solid rgba(217,119,6,.35); border-radius:10px; padding:11px 14px; }
-.aviso b { color:#FBBF24; font-size:13px; font-weight:600; }
+.aviso b { color:$AMBAR_TXT; font-size:13px; font-weight:600; }
 .aviso div { font-size:13px; color:$TEXTO_2; margin-top:3px; line-height:1.5; }
 .aviso.erro { background: rgba(251,113,133,.10); border-color: rgba(251,113,133,.35); }
 .aviso.erro b { color:$RUIM; }
@@ -195,7 +212,7 @@ div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radi
 .selo { display:inline-flex; align-self:flex-start; align-items:center; font-size:11px; font-weight:600;
    border-radius:999px; padding:3px 9px; line-height:1.4; }
 .selo.ok { color:$BOM; background: rgba(52,211,153,.10); border:1px solid rgba(52,211,153,.30); }
-.selo.alerta { color:#FBBF24; background: rgba(217,119,6,.12); border:1px solid rgba(217,119,6,.35); }
+.selo.alerta { color:$AMBAR_TXT; background: rgba(217,119,6,.12); border:1px solid rgba(217,119,6,.35); }
 .subtitulo-recs { font-size:12px; font-weight:600; color:$TEXTO_2; letter-spacing:.04em; text-transform:uppercase; }
 
 /* navegação: nesta versão do Streamlit as abas usam react-aria (role tablist e data-testid stTab), sem baseweb */
@@ -236,6 +253,8 @@ div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radi
 .stDownloadButton button, .stButton button { background:$ROXO_PROFUNDO !important; border:1px solid $BORDA_FORTE !important;
    color:$TEXTO !important; border-radius:9px !important; }
 .stDownloadButton button:hover, .stButton button:hover { border-color:$VIOLETA !important; color:$LILAS !important; }
+/* o rótulo do botão é um parágrafo de markdown: sem isto herda a cor cinza dos parágrafos */
+.stDownloadButton button p, .stButton button p { color:inherit !important; }
 .stButton button[data-testid="stBaseButton-primary"] { background: linear-gradient(135deg, $VIOLETA 0%, $ROSA 100%) !important;
    border:none !important; color:#FFFFFF !important; font-weight:600 !important; box-shadow: 0 6px 18px rgba(139,92,246,.30); }
 .stButton button[data-testid="stBaseButton-primary"]:hover { color:#FFFFFF !important; filter: brightness(1.08); }
@@ -245,9 +264,73 @@ div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radi
     PRETO_ARROXEADO=PRETO_ARROXEADO, CINZA_MUITO_ESCURO=CINZA_MUITO_ESCURO, ROXO_ESCURO=ROXO_ESCURO,
     ROXO_PROFUNDO=ROXO_PROFUNDO, ROXO_AMEIXA=ROXO_AMEIXA, BORDA=BORDA, BORDA_FORTE=BORDA_FORTE,
     TEXTO=TEXTO, TEXTO_2=TEXTO_2, TEXTO_3=TEXTO_3, VIOLETA=VIOLETA, ROSA=ROSA, LILAS=LILAS,
-    ROSA_CLARO=ROSA_CLARO, BOM=BOM, RUIM=RUIM,
+    ROSA_CLARO=ROSA_CLARO, BOM=BOM, RUIM=RUIM, AMBAR_TXT=AMBAR_TXT, CIANO=CIANO, DIV_MEIO=DIV_MEIO,
+    ESQUEMA="light" if TEMA_CLARO else "dark",
+    BRILHO_1="rgba(139,92,246,.10)" if TEMA_CLARO else "rgba(139,92,246,.20)",
+    BRILHO_2="rgba(236,72,153,.07)" if TEMA_CLARO else "rgba(236,72,153,.13)",
+    CARD_TOPO="rgba(139,92,246,.05)" if TEMA_CLARO else "rgba(50,26,59,.45)",
+    SOMBRA="0 8px 24px rgba(76,48,120,.08)" if TEMA_CLARO else "0 12px 32px rgba(0,0,0,.28)",
 )
 st.html(CSS)
+
+
+# Botão de tema. Tabelas, menus e demais componentes nativos só trocam de tema ao carregar a
+# página, pela opção embed_options=light_theme da URL; a paleta do CSS e dos gráficos segue o
+# parâmetro "tema". Por isso o botão navega para a nova URL (os filtros voltam ao padrão).
+ICONE_SOL = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+             '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4'
+             'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>')
+ICONE_LUA = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+             'stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>')
+
+
+# Registrado a cada execução, sem cache: o registro de componentes pertence ao runtime, e um objeto
+# guardado em cache_resource sobrevive a um runtime novo sem estar registrado nele.
+def componente_tema():
+    return st.components.v2.component(
+        "botao_tema",
+        html='<button type="button" class="tema"><span class="ic"></span><span class="tx"></span></button>',
+        css="""
+.tema { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%; height:34px;
+  padding:0 14px; border-radius:999px; cursor:pointer; white-space:nowrap;
+  font:600 12.5px Inter, Helvetica, Arial, sans-serif; color:var(--txt); background:var(--fundo);
+  border:1px solid var(--borda); transition:border-color .15s, color .15s; }
+.tema:hover { border-color:var(--acento); color:var(--acento); }
+.ic, .ic svg { display:inline-flex; width:15px; height:15px; }
+""",
+        js="""
+export default function (component) {
+  const { data, parentElement } = component;
+  const botao = parentElement.querySelector("button");
+  botao.querySelector(".tx").textContent = data.rotulo;
+  botao.querySelector(".ic").innerHTML = data.icone;
+  for (const [nome, valor] of Object.entries(data.cores)) botao.style.setProperty(nome, valor);
+  botao.onclick = () => {
+    const url = new URL(window.location.href);
+    const outras = url.searchParams.getAll("embed_options")
+      .filter((v) => !["light_theme", "dark_theme"].includes(v.toLowerCase()));
+    url.searchParams.delete("embed_options");
+    url.searchParams.delete("tema");
+    outras.forEach((v) => url.searchParams.append("embed_options", v));
+    if (data.destino === "claro") {
+      url.searchParams.set("tema", "claro");
+      url.searchParams.append("embed_options", "light_theme");
+    }
+    window.location.assign(url.toString());
+  };
+  // Sem ?tema=claro o painel é escuro. Com [theme.light] e [theme.dark] no config, o Streamlit
+  // seguiria o tema do sistema na primeira visita: grava a escolha escura e recarrega uma vez.
+  if (data.destino === "claro") {
+    const chave = `stActiveTheme-${window.location.pathname}-v2`;
+    const salvo = window.localStorage.getItem(chave);
+    if (salvo !== JSON.stringify("Dark")) {
+      window.localStorage.setItem(chave, JSON.stringify("Dark"));
+      const sistemaClaro = window.matchMedia("(prefers-color-scheme: light)").matches;
+      if (salvo === JSON.stringify("Light") || sistemaClaro) window.location.reload();
+    }
+  }
+}
+""")
 
 
 # ======================================================================
@@ -526,9 +609,10 @@ def rotular_celulas(fig, z, xs, ys, formato):
             v = zz[i, j]
             if np.isnan(v):
                 continue
-            claro = (v - lo) / ((hi - lo) or 1) > 0.6
+            pos = (v - lo) / ((hi - lo) or 1)
+            claro = pos < 0.72 if TEMA_CLARO else pos > 0.6  # ESCALA_SEQ inverte entre os temas
             fig.add_annotation(x=x, y=y, text=formato(v), showarrow=False,
-                               font=dict(size=11, color=PRETO_ARROXEADO if claro else "#FFFFFF"))
+                               font=dict(size=11, color=TEXTO_CELULA if claro else "#FFFFFF"))
     return fig
 
 
@@ -598,7 +682,8 @@ def tabelas_atendimento(a):
 # ======================================================================
 # CABEÇALHO E FILTROS
 # ======================================================================
-st.markdown(
+cab = st.columns([10, 1.25], gap="small", vertical_alignment="center")
+cab[0].markdown(
     '<div class="topo"><div class="marca"><div class="logo">V</div><div>'
     '<div class="titulo">Vértice Retail · <span>Rentabilidade comercial</span></div>'
     '<div class="sub">Receita, margem, desconto, frete e devoluções dos pedidos aprovados</div></div></div>'
@@ -606,6 +691,13 @@ st.markdown(
     f'<span class="pilula">Desde {DATA_MIN:%d/%m/%Y}</span>'
     f'<span class="pilula">{inteiro(len(BASE))} pedidos aprovados</span></div></div>',
     unsafe_allow_html=True)
+with cab[1]:
+    componente_tema()(key="botao_tema", data={
+        "destino": "escuro" if TEMA_CLARO else "claro",
+        "rotulo": "Tema escuro" if TEMA_CLARO else "Tema claro",
+        "icone": ICONE_LUA if TEMA_CLARO else ICONE_SOL,
+        "cores": {"--fundo": ROXO_PROFUNDO, "--borda": BORDA_FORTE, "--txt": TEXTO_2, "--acento": LILAS},
+    })
 
 PRESETS = ["Todo o período", "Últimos 30 dias", "Últimos 90 dias", "Ano de 2023", "Personalizado"]
 st.session_state.setdefault("versao_drill", 0)
@@ -1477,19 +1569,26 @@ with abas[1]:
         return ctx
 
     with card("exp_ia"):
-        topo = st.columns([4, 1.3], gap="small", vertical_alignment="center")
-        with topo[0]:
-            cabecalho("Insights sobre as tabelas",
-                      "O Elo Agents analisa só os dados das tabelas acima, na configuração atual de dimensão, "
-                      "métrica, quebra e seleção.")
+        cabecalho("Insights sobre as tabelas",
+                  "O Elo Agents analisa só os dados das tabelas acima, na configuração atual de dimensão, "
+                  "métrica, quebra e seleção. Digite uma pergunta para direcionar a análise, ou deixe em branco.")
         assinatura_tab = assinatura_recorte() + repr((dim, met, quebra, lado if dim in LIMITADAS else None,
                                                       sorted(map(str, filtros_sel))))
         if not elo_agents.configurado():
             aviso("Elo Agents não configurado",
                   'Defina ELOAGENTS_API_KEY em .streamlit/secrets.toml para gerar insights sobre as tabelas.')
         else:
+            topo = st.columns([4, 1.3], gap="small", vertical_alignment="bottom")
+            pergunta_tab = topo[0].text_input(
+                "Pergunta sobre as tabelas (opcional)", key="ia_tab_pergunta",
+                placeholder="Ex.: por que o Marketplace fica abaixo dos demais nesta métrica?")
             if topo[1].button("Gerar insights da tabela", type="primary", width="stretch", key="ia_tab_gerar"):
                 ctx_tab = contexto_tabela()
+                if pergunta_tab.strip():
+                    # Uma pergunta pode puxar frete ou desconto mesmo quando a métrica não é deles: sem as
+                    # definições, o modelo chegou a sugerir "frete grátis" no Marketplace, que não tem.
+                    ctx_tab["definicoes"].update({k: DEFINICOES[k] for k in
+                                                  ("frete_rs", "frete_gratis", "desconto_pct_receita_bruta")})
                 descricao_tab = (f"tabela por {dim_nome.lower()} · {info['nome']}"
                                  + (f" · quebra por {quebra_nome.lower()}" if quebra else "")
                                  + (f" · seleção: {rotulo_sel}" if filtros_sel else "")
@@ -1497,9 +1596,11 @@ with abas[1]:
                 with st.spinner("Consultando o Elo Agents com os dados das tabelas. A análise leva cerca de 30 segundos..."):
                     try:
                         resultado_tab = elo_agents.gerar_insights_tabela(
-                            ctx_tab, st.session_state.get("ia_modelo") or elo_agents.modelo_padrao())
+                            ctx_tab, st.session_state.get("ia_modelo") or elo_agents.modelo_padrao(),
+                            pergunta=pergunta_tab.strip() or None)
                         st.session_state["ia_tab"] = dict(
-                            assinatura=assinatura_tab, recorte=descricao_tab, pergunta="", resultado=resultado_tab,
+                            assinatura=assinatura_tab, recorte=descricao_tab, pergunta=pergunta_tab.strip(),
+                            resultado=resultado_tab,
                             contexto=ctx_tab, quando=pd.Timestamp.now(tz="America/Sao_Paulo"))
                         st.session_state.pop("ia_tab_erro", None)
                     except elo_agents.ErroElo as e:
@@ -1512,7 +1613,8 @@ with abas[1]:
                 render_insights_ia(ia_tab, desatualizado=ia_tab["assinatura"] != assinatura_tab)
             elif not erro_tab:
                 nota("Clique em Gerar insights da tabela. A análise usa exatamente o que está nas tabelas acima e "
-                     "muda conforme a dimensão, a métrica, a quebra e a seleção escolhidas.")
+                     "muda conforme a dimensão, a métrica, a quebra e a seleção escolhidas. Com uma pergunta, os "
+                     "insights respondem a ela usando só esses dados.")
 
 # ======================================================================
 # CANAIS
@@ -1581,7 +1683,9 @@ with abas[2]:
                 ids=ids, labels=rotulos, parents=pais, values=valores, branchvalues="total", customdata=extra,
                 marker=dict(colors=cores, line=dict(color=ROXO_ESCURO, width=2), cornerradius=6),
                 texttemplate="<b>%{label}</b><br>%{customdata[0]}<br>%{customdata[1]}",
-                textfont=dict(size=12, color="#FFFFFF"),
+                # no tema claro o centro da escala é claro: rótulo escuro nos blocos próximos da média
+                textfont=dict(size=12, color=[TEXTO] + [TEXTO_CELULA if TEMA_CLARO and abs(p_ - 0.5) < 0.3
+                                                        else "#FFFFFF" for p_ in posicoes]),
                 hovertemplate="<b>%{label}</b><br>Receita: %{customdata[0]}<br>Margem: %{customdata[1]}<extra></extra>",
                 pathbar=dict(visible=True, textfont=dict(color=TEXTO_2)), tiling=dict(pad=3), maxdepth=3))
             fig.update_layout(height=H_M + 10, paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=26, b=0),
@@ -1792,7 +1896,8 @@ with abas[5]:
                                 f"({pct(curtas)}).")
 
         with card("dev_mapa"):
-            cabecalho("Taxa de devolução por canal e categoria", "Em % dos pedidos de cada combinação; mais claro = maior")
+            cabecalho("Taxa de devolução por canal e categoria", "Em % dos pedidos de cada combinação; "
+                      + ("mais escuro = maior" if TEMA_CLARO else "mais claro = maior"))
             tq = agregar(df, ["canal", "categoria"])["taxa_dev"].unstack("categoria")
             tq = tq.reindex([ch for ch in COR_CANAL if ch in tq.index])[[x for x in COR_CATEGORIA if x in tq.columns]]
             fig = go.Figure(go.Heatmap(

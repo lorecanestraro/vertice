@@ -300,14 +300,18 @@ def gerar_insights(contexto, pergunta=None, modelo=None):
     return _gerar(SISTEMA, pedido, contexto, modelo)
 
 
-def gerar_insights_tabela(contexto, modelo=None):
+def gerar_insights_tabela(contexto, modelo=None, pergunta=None):
     """Insights restritos às tabelas que o usuário está vendo na aba Explorar, focados na
-    dimensão, na métrica e na quebra escolhidas."""
+    dimensão, na métrica e na quebra escolhidas e, opcionalmente, numa pergunta do usuário."""
     cfg = contexto.get("configuracao", {})
     quebra = cfg.get("quebra")
     pedido = (f'Analise a métrica "{cfg.get("metrica_foco")}" por "{cfg.get("dimensao")}"'
               + (f', com quebra por "{quebra}"' if quebra and quebra != "Nenhuma" else "")
               + ". Todos os insights devem ser sobre essa visão.")
+    if pergunta:
+        pedido += (f"\n\nPergunta do usuário: {pergunta}\nResponda a essa pergunta com os insights, usando só as "
+                   "tabelas. Se as tabelas não tiverem os dados necessários para responder, diga isso no resumo "
+                   "e indique qual dimensão, métrica ou quebra do painel ajudaria.")
     return _gerar(INSTRUCOES_TABELA, pedido, contexto, modelo)
 
 

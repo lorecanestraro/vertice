@@ -1,18 +1,29 @@
-# Tema do painel Vértice Retail: roxo escuro.
-# Superfícies da paleta definida (#1A191E, #1C191F, #211928, #2B1A31, #321A3B) e violeta como
-# cor de ação, para que controles nativos (tabelas, sliders, botões, alternadores) já nasçam no tema.
+# Tema do painel Vértice Retail: roxo escuro por padrão, com versão clara pelo botão do cabeçalho
+# (URL com ?tema=claro&embed_options=light_theme). Os controles nativos (tabelas, sliders, botões,
+# alternadores) seguem estas cores; o CSS e os gráficos usam a mesma paleta em app.py.
 [theme]
-base = "dark"
 primaryColor = "#8B5CF6"
+baseRadius = "10px"
+showWidgetBorder = true
+font = "sans serif"
+
+# Superfícies da paleta definida (#1A191E, #1C191F, #211928, #2B1A31, #321A3B)
+[theme.dark]
 backgroundColor = "#1A191E"
 secondaryBackgroundColor = "#2B1A31"
 textColor = "#F3EEF7"
 borderColor = "#33243D"
 dataframeBorderColor = "#33243D"
 dataframeHeaderBackgroundColor = "#321A3B"
-baseRadius = "10px"
-showWidgetBorder = true
-font = "sans serif"
+
+[theme.light]
+primaryColor = "#7C3AED"
+backgroundColor = "#F5F2F9"
+secondaryBackgroundColor = "#F7F3FC"
+textColor = "#1E1726"
+borderColor = "#E5DDEF"
+dataframeBorderColor = "#E5DDEF"
+dataframeHeaderBackgroundColor = "#EEE6F8"
 
 [client]
 toolbarMode = "minimal"
