@@ -7,10 +7,11 @@ Como rodar:
     streamlit run app.py
 
 Requer 'vendas_tratada.csv' no mesmo diretório (gerado por tratamento_base_V@.py).
-Todos os números, frases de insight e recomendações são calculados a partir dessa
-base, sobre o recorte de filtros ativo.
+Todos os números vêm dessa base, sobre o recorte de filtros ativo. Os insights não
+são fixos: são gerados sob demanda pelo Elo Agents a partir dos mesmos números.
 """
 
+import base64
 import html
 from string import Template
 
@@ -24,94 +25,102 @@ from plotly.subplots import make_subplots
 import elo_agents
 
 # ======================================================================
-# PALETA
+# IDENTIDADE VISUAL — Vértice Retail Design System
 # ----------------------------------------------------------------------
-# Superfícies: os cinco tons roxo-escuros definidos para o painel.
-# Cores de dados: tons validados com validate_palette.js no modo escuro,
-# contra a superfície dos cartões (#211928): faixa de luminosidade,
-# separação para daltonismo entre vizinhos e contraste mínimo de 3:1.
+# Tokens de "Vértice Retail Design System" (tokens/colors.css, typography.css,
+# shape.css): indigo de marca sobre off-white, lavanda como único apoio, cobre
+# como acento de sinal e navy como única superfície escura. A estrutura vem de
+# hairlines de 1px: sem gradiente de fundo, sem sombra estática, labels em mono
+# maiúsculo e números grandes na face de display.
+# Séries de dados: rampa indigo de passo fixo por entidade (a cor segue a
+# entidade, nunca o ranking), validada com validate_palette.js --ordinal contra
+# o cartão branco e contra o navy.
 # ======================================================================
-# Tema claro pelo parâmetro ?tema=claro da URL (o botão do cabeçalho troca). Superfícies, bordas,
-# textos e destaques mudam; as cores de dados são as mesmas, com contraste de 3:1 ou mais nos dois fundos.
-TEMA_CLARO = st.query_params.get("tema") == "claro"
+TEMA_ESCURO = st.query_params.get("tema") == "escuro"  # o design system é claro por padrão
 
-if TEMA_CLARO:
-    PRETO_ARROXEADO = "#F5F2F9"     # fundo da página
-    CINZA_MUITO_ESCURO = "#FFFFFF"  # barra de filtros e navegação
-    ROXO_ESCURO = "#FFFFFF"         # cartões (superfície dos gráficos)
-    ROXO_PROFUNDO = "#F7F3FC"       # elementos elevados: big numbers, campos, recomendações
-    ROXO_AMEIXA = "#EEE6F8"         # destaques: aba ativa, trilhas, cabeçalho de tabela
-    BORDA, BORDA_FORTE, GRADE = "#E5DDEF", "#CBBCDC", "#EFEAF5"
-    TEXTO, TEXTO_2, TEXTO_3 = "#1E1726", "#4E4459", "#6F6480"
+INDIGO_900, INDIGO_800, INDIGO_700, INDIGO_600 = "#0C0C74", "#12129E", "#1A1AC8", "#2E2CD6"
+LAVANDA_400, LAVANDA_300, LAVANDA_200, LAVANDA_100 = "#8E8BE6", "#A5A2E8", "#C9C7F5", "#E8E7FC"
+COBRE_700, COBRE_600, COBRE_500, COBRE_300 = "#8A3F14", "#B0521C", "#C96A2E", "#E2A97E"
+NAVY_900, NAVY_800, NAVY_700 = "#0E2036", "#16304C", "#1F4266"
+
+FONTE = "'Schibsted Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+FONTE_MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+
+if TEMA_ESCURO:
+    PAGINA = NAVY_900        # fundo da página
+    BARRA = NAVY_800         # barra de filtros
+    SUPERFICIE = NAVY_800    # cartões (superfície dos gráficos)
+    ELEVADO = NAVY_700       # campos, blocos internos
+    DESTAQUE = "#24466B"     # aba ativa, trilhas, cabeçalho de tabela
+    BORDA, BORDA_FORTE, GRADE = "#27425F", "#3F6288", "#1E3A57"
+    TEXTO, TEXTO_2, TEXTO_3, TEXTO_4 = "#FFFFFF", "#D5DEE7", "#A9B7C6", "#8DA0B4"
+    ACENTO, ACENTO_FORTE = "#6B69E8", "#8886E9"          # indigo de marca sobre navy
+    ACENTO_TXT, ACENTO_SUAVE = LAVANDA_300, "#1C3350"
+    SINAL, SINAL_TXT, SINAL_SUAVE = COBRE_500, COBRE_300, "#3A2A22"
+    BOM, RUIM, AVISO_TXT = "#35B58A", "#F2796F", "#E0A93F"
+    BOM_SUAVE, RUIM_SUAVE, AVISO_SUAVE = "#13382F", "#3B2323", "#3A3122"
 else:
-    PRETO_ARROXEADO = "#1A191E"     # fundo da página
-    CINZA_MUITO_ESCURO = "#1C191F"  # barra de filtros e navegação
-    ROXO_ESCURO = "#211928"         # cartões (superfície dos gráficos)
-    ROXO_PROFUNDO = "#2B1A31"       # elementos elevados: big numbers, campos, recomendações
-    ROXO_AMEIXA = "#321A3B"         # destaques: aba ativa, trilhas, cabeçalho de tabela
-    BORDA, BORDA_FORTE, GRADE = "#33243D", "#4B3658", "#31243B"
-    TEXTO, TEXTO_2, TEXTO_3 = "#F3EEF7", "#B9AFC4", "#8F84A0"
+    PAGINA = "#F6F6F4"       # off-white da marca
+    BARRA = "#FFFFFF"
+    SUPERFICIE = "#FFFFFF"
+    ELEVADO = "#EDEDE9"      # sunken
+    DESTAQUE = LAVANDA_100
+    BORDA, BORDA_FORTE, GRADE = "#E3E3DF", "#C4C4CC", "#EDEDE9"
+    TEXTO, TEXTO_2, TEXTO_3, TEXTO_4 = "#17171B", "#3A3A42", "#6B6B78", "#9A9AA6"
+    ACENTO, ACENTO_FORTE = INDIGO_700, INDIGO_800
+    ACENTO_TXT, ACENTO_SUAVE = INDIGO_700, LAVANDA_100
+    SINAL, SINAL_TXT, SINAL_SUAVE = COBRE_600, COBRE_700, "#FAEDE3"
+    BOM, RUIM, AVISO_TXT = "#12805C", "#B3261E", "#A8700F"
+    BOM_SUAVE, RUIM_SUAVE, AVISO_SUAVE = "#E3F2EC", "#FBE9E7", "#FBF1DF"
 
-VIOLETA = "#8B5CF6"
-ROSA = "#EC4899"
-CIANO = "#0891B2"
-AMBAR = "#D97706"
-FUCSIA = "#C026D3"
-AZUL = "#3B82F6"
-LARANJA = "#EA580C"
-if TEMA_CLARO:
-    LILAS, ROSA_CLARO = "#7C3AED", "#BE185D"          # destaques de texto
-    BOM, RUIM, AMBAR_TXT = "#059669", "#E11D48", "#B45309"
+# Rampa de série: um passo fixo por entidade. Validada (--ordinal) contra o
+# cartão branco no tema claro e contra o navy no tema escuro.
+if TEMA_ESCURO:
+    SERIE = ["#F2F1FE", "#DAD9F9", "#C0BEF3", "#A5A3EB", "#8886E9", "#6B69E8", "#4F4DE4"]
+    COR_BASE = "#7B78E6"     # série única
 else:
-    LILAS, ROSA_CLARO = "#C4B5FD", "#F9A8D4"
-    BOM, RUIM, AMBAR_TXT = "#34D399", "#FB7185", "#FBBF24"
+    SERIE = ["#0C0C74", "#18189F", "#2E2CD6", "#4F4DE4", "#6E6BEA", "#8E8BE6", "#ADABEC"]
+    COR_BASE = INDIGO_600
+COR_FOCO = SINAL             # cobre: a entidade que o texto comenta
+COR_NEUTRA = BORDA_FORTE
 
-# Cor fixa por entidade, na ordem validada: um filtro nunca repinta quem sobra.
-COR_CANAL = {
-    "Google Ads": VIOLETA, "Marketplace": ROSA, "TikTok Ads": CIANO, "Email Marketing": AMBAR,
-    "Influenciador": FUCSIA, "Instagram Ads": AZUL, "Orgânico": LARANJA,
-}
-COR_CATEGORIA = {"Moda": VIOLETA, "Beleza": ROSA, "Lifestyle": CIANO, "Acessórios": AMBAR}
-COR_PAGAMENTO = {"Cartão de Crédito": VIOLETA, "PIX": ROSA, "Boleto": CIANO, "Vale-Troca": AMBAR}
+CANAIS = ["Google Ads", "Marketplace", "TikTok Ads", "Email Marketing", "Influenciador",
+          "Instagram Ads", "Orgânico"]
+COR_CANAL = dict(zip(CANAIS, SERIE))
+COR_CATEGORIA = dict(zip(["Moda", "Beleza", "Lifestyle", "Acessórios"], SERIE[0::2]))
+COR_PAGAMENTO = dict(zip(["Cartão de Crédito", "PIX", "Boleto", "Vale-Troca"], SERIE[0::2]))
 CORES_DIM = {"canal": COR_CANAL, "categoria": COR_CATEGORIA, "metodo_pagamento": COR_PAGAMENTO}
-TEMA_COR = {"Frete": CIANO, "Desconto": ROSA, "Ticket": AMBAR, "Devolução": FUCSIA, "Sazonalidade": AZUL,
-            "Canais": VIOLETA, "Mix": LARANJA, "Operação": AZUL, "Margem": VIOLETA, "Receita": AZUL,
-            "Volume": CIANO, "Prazo": AMBAR, "Categoria": ROSA, "Pagamento": LARANJA, "Produto": FUCSIA,
-            "Atendimento": CIANO, "Estoque": LARANJA}
 
-COR_BASE = VIOLETA   # série única
-COR_FOCO = ROSA      # entidade em destaque numa série única
-COR_NEUTRA = "#6B5A7B"
-# Sequencial do fundo para o destaque: no escuro os valores altos são claros; no claro, escuros.
-if TEMA_CLARO:
-    ESCALA_SEQ = [[0, "#EFE8FF"], [0.35, "#C9B6FC"], [0.7, "#9C78F5"], [1, "#6A3FD4"]]
-    DIV_MEIO = "#E4DCEC"
+# Sequencial: um hue, claro para escuro no tema claro e o inverso sobre navy.
+# Divergente: cobre e indigo com cinza neutro no meio.
+if TEMA_ESCURO:
+    ESCALA_SEQ = [[0, "#24405F"], [0.35, "#4F4DE4"], [0.7, "#8886E9"], [1, "#DAD9F9"]]
+    ESCALA_DIV = [[0, COBRE_500], [0.5, "#33506E"], [1, "#8886E9"]]
 else:
-    ESCALA_SEQ = [[0, "#7453D6"], [0.35, "#9270F5"], [0.7, "#B9A2FF"], [1, "#E4DAFF"]]
-    DIV_MEIO = "#5A4D66"
-ESCALA_DIV = [[0, ROSA], [0.5, DIV_MEIO], [1, CIANO]]
-TEXTO_CELULA = "#1E1726"  # rótulo escuro sobre células claras de mapas de calor e treemap
+    ESCALA_SEQ = [[0, LAVANDA_100], [0.35, "#ADABEC"], [0.7, "#4F4DE4"], [1, INDIGO_800]]
+    ESCALA_DIV = [[0, COBRE_600], [0.5, "#EDEDE9"], [1, INDIGO_600]]
+TEXTO_CELULA = "#17171B"     # rótulo escuro sobre célula clara
 
 H_P, H_M, H_G = 280, 330, 380  # alturas padrão dos gráficos
 
 st.set_page_config(page_title="Vértice Retail | Rentabilidade", layout="wide",
                    initial_sidebar_state="collapsed")
 
+with open("logo_bootcamp.png", "rb") as _fh:
+    LOGO_B64 = base64.b64encode(_fh.read()).decode()
+
 CSS = Template("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
 :root { color-scheme: $ESQUEMA; }
-.stApp { background-color: $PRETO_ARROXEADO !important; color: $TEXTO !important;
-   background-image: radial-gradient(900px 440px at 6% -10%, $BRILHO_1, transparent 62%),
-                     radial-gradient(760px 400px at 102% -4%, $BRILHO_2, transparent 60%) !important;
-   background-attachment: fixed !important; }
+.stApp { background: $PAGINA !important; color: $TEXTO !important; }
 [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stMainBlockContainer"] {
    background: transparent !important; color: $TEXTO !important; }
 [data-testid="stHeader"] { background: transparent !important; }
-[data-testid="stToolbar"] svg { fill: $TEXTO_3 !important; }
-.block-container { padding: 1.3rem 2rem 2.5rem !important; max-width: 1560px; }
+[data-testid="stToolbar"] svg { fill: $TEXTO_4 !important; }
+.block-container { padding: 1.4rem 2.4rem 3rem !important; max-width: 1560px; }
 html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, textarea {
-   font-family: 'Inter', Helvetica, Arial, sans-serif !important; }
+   font-family: $FONTE !important; }
 [data-testid="stMarkdownContainer"] p { color: $TEXTO_2; }
 /* O Streamlit aplica margin-bottom:-16px ao bloco de markdown para compensar a margem de um
    parágrafo. Aqui todo markdown é HTML próprio em div, sem essa margem: sem o reset, subtítulos,
@@ -119,164 +128,179 @@ html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, 
    ATENÇÃO: não usar sinais de menor/maior neste bloco; o sanitizador do st.html os lê como tags
    e descarta o estilo inteiro. */
 [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
-[data-testid="stVerticalBlock"] { gap: 0.85rem; }
+[data-testid="stVerticalBlock"] { gap: 0.9rem; }
 
-/* cabeçalho */
-.topo { display:flex; justify-content:space-between; align-items:center; gap:24px; padding: 2px 2px 4px; }
-.marca { display:flex; align-items:center; gap:14px; }
-.logo { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
-   background: linear-gradient(135deg, $VIOLETA 0%, $ROSA 100%); color:#FFFFFF; font-weight:800; font-size:20px;
-   box-shadow: 0 8px 24px rgba(139,92,246,.35); }
-.topo .titulo { font-size: 22px; font-weight: 700; color: $TEXTO; letter-spacing: -0.02em; }
-.topo .titulo span { background: linear-gradient(90deg, $LILAS, $ROSA_CLARO); -webkit-background-clip: text;
-   background-clip: text; color: transparent; }
-.topo .sub { font-size: 13px; color: $TEXTO_3; margin-top: 2px; }
+/* cabeçalho: logo do bootcamp em bloco navy, wordmark na face de display */
+.topo { display:flex; justify-content:space-between; align-items:center; gap:24px;
+   padding-bottom:14px; border-bottom:1px solid $BORDA; }
+.marca { display:flex; align-items:center; gap:16px; }
+.logo { flex:0 0 auto; width:164px; height:56px; border-radius:10px; background-color:$NAVY_900;
+   background-image:url('data:image/png;base64,$LOGO'); background-repeat:no-repeat;
+   background-position:center; background-size:120px auto; }
+.topo .titulo { font-size:23px; font-weight:600; letter-spacing:-0.022em; color:$TEXTO; }
+.topo .titulo span { color:$ACENTO_TXT; }
+.topo .sub { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em; text-transform:uppercase;
+   color:$TEXTO_4; margin-top:6px; }
 .meta { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-.pilula { display:inline-flex; align-items:center; gap:8px; font-size:12px; color:$TEXTO_2; background:$ROXO_PROFUNDO;
+.pilula { display:inline-flex; align-items:center; gap:7px; font-family:$FONTE_MONO; font-size:10px;
+   letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_3; background:transparent;
    border:1px solid $BORDA; border-radius:999px; padding:6px 12px; }
-.ponto { width:7px; height:7px; border-radius:50%; background:$BOM; box-shadow:0 0 0 3px rgba(52,211,153,.18); }
+.ponto { width:6px; height:6px; border-radius:50%; background:$ACENTO; }
 
 /* cartões */
-div[class*="st-key-card_"] { background: linear-gradient(180deg, $CARD_TOPO 0%, rgba(0,0,0,0) 140px), $ROXO_ESCURO;
-   border: 1px solid $BORDA; border-radius: 14px; padding: 16px 18px 14px; gap: .6rem;
-   box-shadow: inset 0 1px 0 rgba(255,255,255,.03), $SOMBRA; }
-[data-testid="stColumn"] div[class*="st-key-card_"] { height: 100%; }
-div[class*="st-key-card_filtros"] { background: $CINZA_MUITO_ESCURO; border-radius: 12px; padding: 10px 16px 12px; }
-.card-titulo { font-size: 15px; font-weight: 600; color: $TEXTO; line-height: 1.35; display:flex; align-items:center; gap:9px; }
-.card-titulo::before { content:""; flex: 0 0 8px; height:8px; border-radius:2px; background: linear-gradient(135deg, $VIOLETA, $ROSA); }
-.card-sub { font-size: 12px; color: $TEXTO_3; margin-top: 3px; line-height: 1.4; }
+div[class*="st-key-card_"] { background:$SUPERFICIE; border:1px solid $BORDA; border-radius:10px;
+   padding:24px; gap:.7rem; }
+[data-testid="stColumn"] div[class*="st-key-card_"] { height:100%; }
+div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
+.card-titulo { font-size:16px; font-weight:600; letter-spacing:-0.012em; color:$TEXTO; line-height:1.22; }
+.card-sub { font-size:13px; color:$TEXTO_3; margin-top:6px; line-height:1.5; max-width:86ch; }
 
 /* big numbers */
-.kpi { display:flex; flex-direction:column; background: linear-gradient(160deg, $ROXO_PROFUNDO 0%, $ROXO_ESCURO 100%);
-   border:1px solid $BORDA; border-radius:14px; padding:14px 16px 10px; min-height:160px; overflow:hidden; }
+.kpi { display:flex; flex-direction:column; background:$SUPERFICIE; border:1px solid $BORDA;
+   border-radius:10px; padding:20px; min-height:156px; overflow:hidden; }
 .kpi-topo { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.kpi-rotulo { font-size:12px; font-weight:500; color:$TEXTO_2; }
-.icone { flex: 0 0 30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center;
-   background: rgba(139,92,246,.16); color:$LILAS; }
-.icone svg { width:16px; height:16px; }
-.kpi-valor { font-size:28px; font-weight:700; color:$TEXTO; line-height:1.15; margin-top:8px; white-space:nowrap; letter-spacing:-0.02em; }
-.kpi-linha { display:flex; align-items:center; gap:8px; margin: 4px 0 8px; font-size:12px; color:$TEXTO_3; flex-wrap:wrap; }
-.delta { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; border-radius:999px; padding:2px 8px; }
-.delta.bom { color:$BOM; background: rgba(52,211,153,.12); }
-.delta.ruim { color:$RUIM; background: rgba(251,113,133,.12); }
-.delta.neutro { color:$TEXTO_2; background: rgba(185,175,196,.10); }
-.spark { display:block; margin-top:auto; width:100%; height:34px; }
+.kpi-rotulo { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
+   color:$TEXTO_3; line-height:1.35; min-height:27px; }
+.icone { flex:0 0 16px; height:16px; display:flex; align-items:center; justify-content:center; color:$TEXTO_4; }
+.icone svg { width:15px; height:15px; }
+.kpi-valor { font-size:34px; font-weight:400; letter-spacing:-0.03em; color:$TEXTO; line-height:1;
+   margin-top:14px; white-space:nowrap; }
+.kpi-linha { display:flex; align-items:center; gap:8px; margin:10px 0 8px; font-size:13px; color:$TEXTO_4;
+   flex-wrap:wrap; }
+.delta { display:inline-flex; align-items:center; gap:3px; font-family:$FONTE_MONO; font-size:11px;
+   border-radius:999px; padding:3px 9px; }
+.delta.bom { color:$BOM; background:$BOM_SUAVE; }
+.delta.ruim { color:$RUIM; background:$RUIM_SUAVE; }
+.delta.neutro { color:$TEXTO_3; background:$ELEVADO; }
+.spark { display:block; margin-top:auto; width:100%; height:30px; }
 
-/* insight */
-.insight { background: linear-gradient(135deg, rgba(139,92,246,.17) 0%, rgba(236,72,153,.07) 100%);
-   border:1px solid rgba(139,92,246,.32); border-radius:10px; padding:11px 14px; }
-.insight .rot { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; color:$LILAS; letter-spacing:.06em; text-transform:uppercase; }
+/* insight do Elo Agents */
+.insight { background:$ACENTO_SUAVE; border:1px solid $LINHA_ACENTO; border-radius:10px; padding:14px 16px; }
+.insight .rot { display:flex; align-items:center; gap:7px; font-family:$FONTE_MONO; font-size:10px;
+   font-weight:500; color:$ACENTO_TXT; letter-spacing:0.16em; text-transform:uppercase; }
 .insight .rot svg { width:13px; height:13px; }
-.insight .txt { font-size:13px; color:$TEXTO; margin-top:4px; line-height:1.55; }
-.insight .acao { font-size:13px; color:$TEXTO_2; margin-top:6px; line-height:1.5; }
-.insight .acao b { color:$ROSA_CLARO; font-weight:600; }
+.insight .txt { font-size:14px; color:$TEXTO; margin-top:8px; line-height:1.5; }
+.insight .acao { font-size:13px; color:$TEXTO_2; margin-top:8px; line-height:1.5; }
+.insight .acao b { color:$ACENTO_TXT; font-weight:600; }
 
 /* recomendações */
-.recs { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-@media (max-width: 1100px) { .recs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 700px) { .recs { grid-template-columns: 1fr; } }
-.rec { border:1px solid $BORDA; border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:8px;
-   background: linear-gradient(180deg, $ROXO_PROFUNDO 0%, $ROXO_ESCURO 100%); }
+.recs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; }
+@media (max-width: 1100px) { .recs { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .recs { grid-template-columns:1fr; } }
+.rec { border:1px solid $BORDA; border-radius:10px; padding:20px; display:flex; flex-direction:column;
+   gap:10px; background:$SUPERFICIE; }
 .rec-topo { display:flex; align-items:center; gap:10px; }
-.rank { flex: 0 0 30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center;
-   font-size:12px; font-weight:800; color:#FFFFFF; background: linear-gradient(135deg, $VIOLETA, $ROSA); }
-.tema { font-size:11px; font-weight:600; color:$TEXTO; border-radius:999px; padding:3px 10px; }
-.rec-aba { margin-left:auto; font-size:11px; color:$TEXTO_3; white-space:nowrap; }
-.rec-titulo { font-size:14px; font-weight:600; color:$TEXTO; line-height:1.35; }
+.rank { font-family:$FONTE_MONO; font-size:11px; letter-spacing:0.16em; color:$TEXTO_4; }
+.tema { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em; text-transform:uppercase;
+   color:$ACENTO_FORTE; background:$ACENTO_SUAVE; border-radius:999px; padding:4px 10px; }
+.rec-aba { margin-left:auto; font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em;
+   text-transform:uppercase; color:$TEXTO_4; white-space:nowrap; }
+.rec-titulo { font-size:15px; font-weight:600; color:$TEXTO; line-height:1.3; letter-spacing:-0.012em; }
 .rec-texto { font-size:13px; color:$TEXTO_2; line-height:1.55; }
-.rec-valor { display:flex; align-items:baseline; gap:6px; font-size:12px; color:$TEXTO_3; flex-wrap:wrap; }
-.rec-valor b { font-size:20px; font-weight:700; color:$TEXTO; letter-spacing:-.01em; }
-.medidor { height:6px; border-radius:999px; background:$ROXO_AMEIXA; overflow:hidden; }
-.medidor span { display:block; height:100%; border-radius:999px; background: linear-gradient(90deg, $VIOLETA, $ROSA); }
-.rec-acao { font-size:13px; color:$TEXTO; line-height:1.5; border-top:1px solid $BORDA; padding-top:8px; margin-top:auto; }
-.rec-acao b { color:$ROSA_CLARO; font-weight:600; }
+.rec-valor { display:flex; align-items:baseline; gap:8px; font-family:$FONTE_MONO; font-size:10px;
+   letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_4; flex-wrap:wrap; }
+.rec-valor b { font-family:$FONTE; font-size:24px; font-weight:400; color:$TEXTO; letter-spacing:-0.03em; }
+.medidor { height:4px; border-radius:999px; background:$ELEVADO; overflow:hidden; }
+.medidor span { display:block; height:100%; background:$ACENTO; }
+.rec-acao { font-size:13px; color:$TEXTO; line-height:1.5; border-top:1px solid $BORDA; padding-top:12px;
+   margin-top:auto; }
+.rec-acao b { color:$ACENTO_TXT; font-weight:600; }
 
 /* peças auxiliares */
-.nota { font-size:12px; color:$TEXTO_3 !important; line-height:1.45; }
-.chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:$TEXTO; background:$ROXO_AMEIXA;
-   border:1px solid $BORDA_FORTE; border-radius:999px; padding:5px 12px; }
-.stats { display:flex; flex-wrap:wrap; gap:10px; }
-.stat { background:$ROXO_PROFUNDO; border:1px solid $BORDA; border-radius:10px; padding:10px 14px; min-width:190px; }
-.stat .r { font-size:11px; color:$TEXTO_3; }
-.stat .v { font-size:18px; font-weight:700; color:$TEXTO; margin:2px 0; }
-.legenda-div { display:flex; align-items:center; gap:10px; font-size:11px; color:$TEXTO_3; margin-top:2px; }
-.barra-div { flex:1; height:8px; border-radius:999px; background: linear-gradient(90deg, $ROSA, $DIV_MEIO, $CIANO); }
+.nota { font-size:12px; color:$TEXTO_4 !important; line-height:1.5; }
+.chip { display:inline-flex; align-items:center; gap:6px; font-family:$FONTE_MONO; font-size:10px;
+   letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_2; background:$DESTAQUE;
+   border:1px solid $LINHA_ACENTO; border-radius:999px; padding:6px 12px; }
+.stats { display:flex; flex-wrap:wrap; gap:12px; }
+.stat { background:$SUPERFICIE; border:1px solid $BORDA; border-radius:10px; padding:14px 18px; min-width:196px; }
+.stat .r { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_4; }
+.stat .v { font-size:24px; font-weight:400; letter-spacing:-0.03em; color:$TEXTO; margin:6px 0 4px; }
+.legenda-div { display:flex; align-items:center; gap:10px; font-family:$FONTE_MONO; font-size:10px;
+   letter-spacing:0.16em; color:$TEXTO_4; margin-top:4px; }
+.barra-div { flex:1; height:6px; border-radius:999px;
+   background:linear-gradient(90deg, $DIV_BAIXO, $DIV_MEIO, $DIV_ALTO); }
 
-/* insights do Elo Agents */
-.aviso { background: rgba(217,119,6,.10); border:1px solid rgba(217,119,6,.35); border-radius:10px; padding:11px 14px; }
-.aviso b { color:$AMBAR_TXT; font-size:13px; font-weight:600; }
-.aviso div { font-size:13px; color:$TEXTO_2; margin-top:3px; line-height:1.5; }
-.aviso.erro { background: rgba(251,113,133,.10); border-color: rgba(251,113,133,.35); }
+/* insights do Elo Agents: avisos e selos */
+.aviso { background:$AVISO_SUAVE; border:1px solid $AVISO_TXT; border-radius:10px; padding:14px 16px; }
+.aviso b { color:$AVISO_TXT; font-size:13px; font-weight:600; }
+.aviso div { font-size:13px; color:$TEXTO_2; margin-top:4px; line-height:1.5; }
+.aviso.erro { background:$RUIM_SUAVE; border-color:$RUIM; }
 .aviso.erro b { color:$RUIM; }
-.ia-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; color:$TEXTO_3; }
-.selo { display:inline-flex; align-self:flex-start; align-items:center; font-size:11px; font-weight:600;
-   border-radius:999px; padding:3px 9px; line-height:1.4; }
-.selo.ok { color:$BOM; background: rgba(52,211,153,.10); border:1px solid rgba(52,211,153,.30); }
-.selo.alerta { color:$AMBAR_TXT; background: rgba(217,119,6,.12); border:1px solid rgba(217,119,6,.35); }
-.subtitulo-recs { font-size:12px; font-weight:600; color:$TEXTO_2; letter-spacing:.04em; text-transform:uppercase; }
+.ia-meta { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-family:$FONTE_MONO;
+   font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:$TEXTO_4; }
+.selo { display:inline-flex; align-self:flex-start; align-items:center; font-family:$FONTE_MONO;
+   font-size:10px; letter-spacing:0.12em; border-radius:999px; padding:4px 10px; line-height:1.4; }
+.selo.ok { color:$BOM; background:$BOM_SUAVE; }
+.selo.alerta { color:$AVISO_TXT; background:$AVISO_SUAVE; }
 
-/* navegação: nesta versão do Streamlit as abas usam react-aria (role tablist e data-testid stTab), sem baseweb */
-[data-testid="stTabs"] { margin-top: 6px; }
-[data-testid="stTabs"] [role="tablist"] { display:inline-flex !important; gap:4px; width:auto !important;
-   background:$CINZA_MUITO_ESCURO !important; border:1px solid $BORDA !important; border-radius:12px; padding:5px;
-   box-shadow:none !important; }
+/* navegação: nesta versão do Streamlit as abas usam react-aria (role tablist e data-testid stTab) */
+[data-testid="stTabs"] { margin-top:8px; }
+[data-testid="stTabs"] [role="tablist"] { display:flex !important; gap:2px; width:100% !important;
+   background:transparent !important; border:none !important; border-bottom:1px solid $BORDA !important;
+   border-radius:0; padding:0; box-shadow:none !important; }
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display:none !important; }
 [data-testid="stTabs"] > div:first-child { border-bottom:none !important; box-shadow:none !important; }
-[data-testid="stTab"] { background:transparent !important; color:$TEXTO_3 !important; padding:8px 14px !important;
-   border-radius:8px !important; border:none !important; }
-[data-testid="stTab"] p { color:inherit !important; font-weight:600 !important; font-size:13.5px !important; }
-[data-testid="stTab"]:hover { color:$TEXTO !important; background: rgba(139,92,246,.10) !important; }
-[data-testid="stTab"][aria-selected="true"] { color:$TEXTO !important;
-   background: linear-gradient(135deg, rgba(139,92,246,.38), rgba(236,72,153,.22)) !important;
-   box-shadow: inset 0 0 0 1px rgba(196,181,253,.25) !important; }
-[data-testid="stTabs"] [role="tabpanel"] { padding-top: 14px; }
+[data-testid="stTab"] { background:transparent !important; color:$TEXTO_3 !important; padding:10px 16px !important;
+   border:none !important; border-bottom:2px solid transparent !important; border-radius:0 !important; }
+[data-testid="stTab"] p { color:inherit !important; font-weight:500 !important; font-size:13.5px !important; }
+[data-testid="stTab"]:hover { color:$TEXTO !important; }
+[data-testid="stTab"][aria-selected="true"] { color:$ACENTO_TXT !important;
+   border-bottom-color:$ACENTO !important; background:transparent !important; box-shadow:none !important; }
+[data-testid="stTabs"] [role="tabpanel"] { padding-top:18px; }
 
 /* controles */
-[data-testid="stWidgetLabel"] p { color:$TEXTO_2 !important; font-weight:500 !important; font-size:12px !important; }
+[data-testid="stWidgetLabel"] p { font-family:$FONTE_MONO !important; color:$TEXTO_3 !important;
+   font-size:10px !important; letter-spacing:0.1em !important; text-transform:uppercase !important; }
 [data-baseweb="select"] > div, [data-baseweb="input"] > div, [data-baseweb="base-input"] {
-   background-color:$ROXO_PROFUNDO !important; border-color:$BORDA !important; color:$TEXTO !important; border-radius:9px !important; }
-[data-baseweb="input"] input, [data-baseweb="base-input"] input { color:$TEXTO_2 !important; -webkit-text-fill-color:$TEXTO_2 !important; }
+   background-color:$SUPERFICIE !important; border-color:$BORDA_FORTE !important; color:$TEXTO !important;
+   border-radius:6px !important; }
+[data-baseweb="input"] input, [data-baseweb="base-input"] input { color:$TEXTO_2 !important;
+   -webkit-text-fill-color:$TEXTO_2 !important; }
 [data-baseweb="select"] svg { fill:$TEXTO_3 !important; }
 [data-baseweb="popover"] [role="listbox"], [data-baseweb="menu"], [data-baseweb="menu"] li {
-   background-color:$ROXO_PROFUNDO !important; color:$TEXTO !important; }
-[data-baseweb="menu"] li:hover { background-color:$ROXO_AMEIXA !important; }
-[data-baseweb="tag"] { background-color: rgba(139,92,246,.24) !important; border:none !important; }
-[data-baseweb="tag"] span { color:$TEXTO !important; }
-[data-baseweb="tag"] svg { fill:$LILAS !important; }
-[data-testid="stSlider"] [role="slider"] { background-color:$VIOLETA !important; box-shadow: 0 0 0 4px rgba(139,92,246,.25) !important; }
-[data-testid="stThumbValue"] { color:$LILAS !important; font-weight:600 !important; }
-[data-testid="stSliderTickBarMin"], [data-testid="stSliderTickBarMax"] { color:$TEXTO_3 !important; background:transparent !important; }
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color:$TEXTO_3 !important; }
-[data-testid="stCheckbox"] p, [data-testid="stToggle"] p { color:$TEXTO_2 !important; font-size:13px !important; }
-[data-testid="stExpander"] details { background:$ROXO_ESCURO !important; border:1px solid $BORDA !important; border-radius:12px !important; }
+   background-color:$SUPERFICIE !important; color:$TEXTO !important; }
+[data-baseweb="menu"] li:hover { background-color:$DESTAQUE !important; }
+[data-baseweb="tag"] { background-color:$DESTAQUE !important; border:1px solid $LINHA_ACENTO !important; }
+[data-baseweb="tag"] span { color:$ACENTO_FORTE !important; }
+[data-baseweb="tag"] svg { fill:$ACENTO !important; }
+[data-testid="stSlider"] [role="slider"] { background-color:$ACENTO !important; box-shadow:none !important; }
+[data-testid="stThumbValue"] { font-family:$FONTE_MONO !important; color:$ACENTO_TXT !important; }
+[data-testid="stSliderTickBarMin"], [data-testid="stSliderTickBarMax"] { font-family:$FONTE_MONO !important;
+   color:$TEXTO_4 !important; background:transparent !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color:$TEXTO_4 !important; }
+[data-testid="stCheckbox"] p, [data-testid="stToggle"] p { color:$TEXTO_2 !important; font-size:13px !important;
+   font-family:$FONTE !important; letter-spacing:normal !important; text-transform:none !important; }
+[data-testid="stExpander"] details { background:$SUPERFICIE !important; border:1px solid $BORDA !important;
+   border-radius:10px !important; }
 [data-testid="stExpander"] summary p { color:$TEXTO_2 !important; }
-.stDownloadButton button, .stButton button { background:$ROXO_PROFUNDO !important; border:1px solid $BORDA_FORTE !important;
-   color:$TEXTO !important; border-radius:9px !important; }
-.stDownloadButton button:hover, .stButton button:hover { border-color:$VIOLETA !important; color:$LILAS !important; }
+.stDownloadButton button, .stButton button { background:$SUPERFICIE !important; border:1px solid $BORDA_FORTE !important;
+   color:$TEXTO !important; border-radius:999px !important; font-weight:500 !important; }
+.stDownloadButton button:hover, .stButton button:hover { border-color:$TEXTO !important; color:$TEXTO !important; }
 /* o rótulo do botão é um parágrafo de markdown: sem isto herda a cor cinza dos parágrafos */
 .stDownloadButton button p, .stButton button p { color:inherit !important; }
-.stButton button[data-testid="stBaseButton-primary"] { background: linear-gradient(135deg, $VIOLETA 0%, $ROSA 100%) !important;
-   border:none !important; color:#FFFFFF !important; font-weight:600 !important; box-shadow: 0 6px 18px rgba(139,92,246,.30); }
-.stButton button[data-testid="stBaseButton-primary"]:hover { color:#FFFFFF !important; filter: brightness(1.08); }
-.modebar { background: transparent !important; }
+.stButton button[data-testid="stBaseButton-primary"] { background:$ACENTO !important; border:1px solid $ACENTO !important;
+   color:#FFFFFF !important; font-weight:500 !important; }
+.stButton button[data-testid="stBaseButton-primary"]:hover { background:$ACENTO_FORTE !important;
+   border-color:$ACENTO_FORTE !important; color:#FFFFFF !important; }
+.modebar { background:transparent !important; }
 </style>
 """).substitute(
-    PRETO_ARROXEADO=PRETO_ARROXEADO, CINZA_MUITO_ESCURO=CINZA_MUITO_ESCURO, ROXO_ESCURO=ROXO_ESCURO,
-    ROXO_PROFUNDO=ROXO_PROFUNDO, ROXO_AMEIXA=ROXO_AMEIXA, BORDA=BORDA, BORDA_FORTE=BORDA_FORTE,
-    TEXTO=TEXTO, TEXTO_2=TEXTO_2, TEXTO_3=TEXTO_3, VIOLETA=VIOLETA, ROSA=ROSA, LILAS=LILAS,
-    ROSA_CLARO=ROSA_CLARO, BOM=BOM, RUIM=RUIM, AMBAR_TXT=AMBAR_TXT, CIANO=CIANO, DIV_MEIO=DIV_MEIO,
-    ESQUEMA="light" if TEMA_CLARO else "dark",
-    BRILHO_1="rgba(139,92,246,.10)" if TEMA_CLARO else "rgba(139,92,246,.20)",
-    BRILHO_2="rgba(236,72,153,.07)" if TEMA_CLARO else "rgba(236,72,153,.13)",
-    CARD_TOPO="rgba(139,92,246,.05)" if TEMA_CLARO else "rgba(50,26,59,.45)",
-    SOMBRA="0 8px 24px rgba(76,48,120,.08)" if TEMA_CLARO else "0 12px 32px rgba(0,0,0,.28)",
+    PAGINA=PAGINA, BARRA=BARRA, SUPERFICIE=SUPERFICIE, ELEVADO=ELEVADO, DESTAQUE=DESTAQUE,
+    BORDA=BORDA, BORDA_FORTE=BORDA_FORTE, TEXTO=TEXTO, TEXTO_2=TEXTO_2, TEXTO_3=TEXTO_3, TEXTO_4=TEXTO_4,
+    ACENTO=ACENTO, ACENTO_FORTE=ACENTO_FORTE, ACENTO_TXT=ACENTO_TXT, ACENTO_SUAVE=ACENTO_SUAVE,
+    LINHA_ACENTO=LAVANDA_200 if not TEMA_ESCURO else "#3A4E86",
+    BOM=BOM, RUIM=RUIM, BOM_SUAVE=BOM_SUAVE, RUIM_SUAVE=RUIM_SUAVE,
+    AVISO_TXT=AVISO_TXT, AVISO_SUAVE=AVISO_SUAVE, NAVY_900=NAVY_900,
+    DIV_BAIXO=ESCALA_DIV[0][1], DIV_MEIO=ESCALA_DIV[1][1], DIV_ALTO=ESCALA_DIV[2][1],
+    FONTE=FONTE, FONTE_MONO=FONTE_MONO, LOGO=LOGO_B64,
+    ESQUEMA="dark" if TEMA_ESCURO else "light",
 )
 st.html(CSS)
 
 
 # Botão de tema. Tabelas, menus e demais componentes nativos só trocam de tema ao carregar a
-# página, pela opção embed_options=light_theme da URL; a paleta do CSS e dos gráficos segue o
-# parâmetro "tema". Por isso o botão navega para a nova URL (os filtros voltam ao padrão).
+# página, pela opção embed_options da URL; a paleta do CSS e dos gráficos segue o parâmetro
+# "tema". Por isso o botão navega para a nova URL (os filtros voltam ao padrão).
 ICONE_SOL = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
              '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4'
              'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>')
@@ -293,7 +317,7 @@ def componente_tema():
         css="""
 .tema { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%; height:34px;
   padding:0 14px; border-radius:999px; cursor:pointer; white-space:nowrap;
-  font:600 12.5px Inter, Helvetica, Arial, sans-serif; color:var(--txt); background:var(--fundo);
+  font:500 12px 'Schibsted Grotesk', Helvetica, Arial, sans-serif; color:var(--txt); background:var(--fundo);
   border:1px solid var(--borda); transition:border-color .15s, color .15s; }
 .tema:hover { border-color:var(--acento); color:var(--acento); }
 .ic, .ic svg { display:inline-flex; width:15px; height:15px; }
@@ -312,21 +336,22 @@ export default function (component) {
     url.searchParams.delete("embed_options");
     url.searchParams.delete("tema");
     outras.forEach((v) => url.searchParams.append("embed_options", v));
-    if (data.destino === "claro") {
-      url.searchParams.set("tema", "claro");
-      url.searchParams.append("embed_options", "light_theme");
+    if (data.destino === "escuro") {
+      url.searchParams.set("tema", "escuro");
+      url.searchParams.append("embed_options", "dark_theme");
     }
     window.location.assign(url.toString());
   };
-  // Sem ?tema=claro o painel é escuro. Com [theme.light] e [theme.dark] no config, o Streamlit
-  // seguiria o tema do sistema na primeira visita: grava a escolha escura e recarrega uma vez.
-  if (data.destino === "claro") {
+  // Sem ?tema=escuro o painel é claro, como manda o design system. Com [theme.light] e
+  // [theme.dark] no config, o Streamlit seguiria o tema do sistema operacional na primeira
+  // visita: grava a escolha clara e recarrega uma vez.
+  if (data.destino === "escuro") {
     const chave = `stActiveTheme-${window.location.pathname}-v2`;
     const salvo = window.localStorage.getItem(chave);
-    if (salvo !== JSON.stringify("Dark")) {
-      window.localStorage.setItem(chave, JSON.stringify("Dark"));
-      const sistemaClaro = window.matchMedia("(prefers-color-scheme: light)").matches;
-      if (salvo === JSON.stringify("Light") || sistemaClaro) window.location.reload();
+    if (salvo !== JSON.stringify("Light")) {
+      window.localStorage.setItem(chave, JSON.stringify("Light"));
+      const sistemaEscuro = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (salvo === JSON.stringify("Dark") || sistemaEscuro) window.location.reload();
     }
   }
 }
@@ -397,7 +422,7 @@ ICONES = {
 }
 
 
-def sparkline(valores, chave, cor=VIOLETA):
+def sparkline(valores, chave, cor=ACENTO):
     """Minigráfico SVG da tendência; o último ponto em destaque."""
     v = [float(x) for x in valores if pd.notna(x)]
     if len(v) < 2:
@@ -416,7 +441,7 @@ def sparkline(valores, chave, cor=VIOLETA):
             f'<stop offset="1" stop-color="{cor}" stop-opacity="0"></stop></linearGradient></defs>'
             f'<path d="{area}" fill="url(#{gid})"></path>'
             f'<polyline points="{pontos}" fill="none" stroke="{cor}" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>'
-            f'<circle cx="{xs[-1]:.1f}" cy="{ys[-1]:.1f}" r="3" fill="{ROSA}"></circle></svg>')
+            f'<circle cx="{xs[-1]:.1f}" cy="{ys[-1]:.1f}" r="3" fill="{SINAL}"></circle></svg>')
 
 
 # ======================================================================
@@ -501,13 +526,13 @@ def eixo_fmt(tipo):
 def estilo(fig, altura=H_M, horizontal=False, legenda=False):
     fig.update_layout(
         height=altura, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, Helvetica, Arial, sans-serif", size=12, color=TEXTO_2),
+        font=dict(family=FONTE, size=12, color=TEXTO_2),
         margin=dict(l=4, r=24, t=34 if legenda else 10, b=6),
         showlegend=legenda,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, xanchor="left",
                     font=dict(size=12, color=TEXTO_2), bgcolor="rgba(0,0,0,0)", title=None),
-        hoverlabel=dict(bgcolor=ROXO_AMEIXA, bordercolor=BORDA_FORTE,
-                        font=dict(color=TEXTO, size=12, family="Inter, Helvetica, Arial")),
+        hoverlabel=dict(bgcolor=DESTAQUE, bordercolor=BORDA_FORTE,
+                        font=dict(color=TEXTO, size=12, family=FONTE)),
         separators=",.", bargap=0.38, barcornerradius=6, title=None,
     )
     grade = dict(showgrid=True, gridcolor=GRADE, gridwidth=1, zeroline=False)
@@ -610,10 +635,17 @@ def rotular_celulas(fig, z, xs, ys, formato):
             if np.isnan(v):
                 continue
             pos = (v - lo) / ((hi - lo) or 1)
-            claro = pos < 0.72 if TEMA_CLARO else pos > 0.6  # ESCALA_SEQ inverte entre os temas
+            # no tema claro o valor alto é indigo escuro; no navy, lavanda clara
+            clara = pos > 0.6 if TEMA_ESCURO else pos < 0.55
             fig.add_annotation(x=x, y=y, text=formato(v), showarrow=False,
-                               font=dict(size=11, color=TEXTO_CELULA if claro else "#FFFFFF"))
+                               font=dict(size=11, color=TEXTO_CELULA if clara else "#FFFFFF"))
     return fig
+
+
+def cor_rotulo_div(pos):
+    """Rótulo do treemap: tinta escura sobre bloco claro da escala divergente, branco no resto."""
+    claro = pos > 0.78 if TEMA_ESCURO else 0.25 < pos < 0.75
+    return TEXTO_CELULA if claro else "#FFFFFF"
 
 
 ORDEM_TICKET = ["<100", "100-200", "200-250", "250-300", "300-500", "500-1000", ">1000"]
@@ -684,19 +716,20 @@ def tabelas_atendimento(a):
 # ======================================================================
 cab = st.columns([10, 1.25], gap="small", vertical_alignment="center")
 cab[0].markdown(
-    '<div class="topo"><div class="marca"><div class="logo">V</div><div>'
+    '<div class="topo"><div class="marca">'
+    '<div class="logo" role="img" aria-label="Bootcamp EloGroup 2026"></div><div>'
     '<div class="titulo">Vértice Retail · <span>Rentabilidade comercial</span></div>'
-    '<div class="sub">Receita, margem, desconto, frete e devoluções dos pedidos aprovados</div></div></div>'
+    '<div class="sub">Receita · margem · desconto · frete · devoluções</div></div></div>'
     f'<div class="meta"><span class="pilula"><span class="ponto"></span>Dados até {DATA_MAX:%d/%m/%Y}</span>'
     f'<span class="pilula">Desde {DATA_MIN:%d/%m/%Y}</span>'
     f'<span class="pilula">{inteiro(len(BASE))} pedidos aprovados</span></div></div>',
     unsafe_allow_html=True)
 with cab[1]:
     componente_tema()(key="botao_tema", data={
-        "destino": "escuro" if TEMA_CLARO else "claro",
-        "rotulo": "Tema escuro" if TEMA_CLARO else "Tema claro",
-        "icone": ICONE_LUA if TEMA_CLARO else ICONE_SOL,
-        "cores": {"--fundo": ROXO_PROFUNDO, "--borda": BORDA_FORTE, "--txt": TEXTO_2, "--acento": LILAS},
+        "destino": "claro" if TEMA_ESCURO else "escuro",
+        "rotulo": "Tema claro" if TEMA_ESCURO else "Tema escuro",
+        "icone": ICONE_SOL if TEMA_ESCURO else ICONE_LUA,
+        "cores": {"--fundo": SUPERFICIE, "--borda": BORDA_FORTE, "--txt": TEXTO_2, "--acento": ACENTO_TXT},
     })
 
 PRESETS = ["Todo o período", "Últimos 30 dias", "Últimos 90 dias", "Ano de 2023", "Personalizado"]
@@ -819,100 +852,6 @@ kpi(k[5], "Taxa de devolução", pct(K.taxa_dev), f"{inteiro(K.devolvidos)} pedi
     "Pedidos devolvidos sobre pedidos aprovados", "devolucao")
 nota(("Variações comparadas a " + f"{p_ini:%d/%m/%Y}–{p_fim:%d/%m/%Y}, período de mesma duração. " if comparavel else "")
      + ("Minigráficos: evolução semanal no período." if dias <= 120 else "Minigráficos: evolução mensal no período."))
-
-
-# ======================================================================
-# INSIGHTS E RECOMENDAÇÕES (calculados sobre o recorte)
-# ======================================================================
-def gerar_insights(d):
-    recs = []
-    total = agregar(d).iloc[0]
-    mk, fora = d[d["canal"] == "Marketplace"], d[d["canal"] != "Marketplace"]
-
-    eleg = mk[mk["receita_liquida"] >= 250]
-    if len(eleg) and eleg["custo_frete"].sum() > 0:
-        texto = (f"{inteiro(len(eleg))} pedidos do Marketplace acima de R$ 250 pagaram "
-                 f"{brl(eleg['custo_frete'].sum())} de frete.")
-        alto = fora[fora["receita_liquida"] >= 250]
-        if len(alto) and alto["frete_gratis"].mean() == 1:
-            texto += " Nos demais canais, todos os pedidos dessa faixa têm frete grátis."
-        recs.append(dict(
-            tema="Frete", aba="Frete e entrega", valor=eleg["custo_frete"].sum(),
-            titulo="Marketplace paga frete acima de R$ 250", texto=texto, rotulo="frete pago no período",
-            acao="Negociar frete subsidiado com o marketplace acima de R$ 250 ou incorporar o frete ao preço do canal."))
-
-    acima = d[d["desconto_pct"] > 25]
-    if len(acima):
-        excedente = ((acima["desconto_pct"] - 25) / 100 * acima["receita_bruta"]).sum()
-        a30, d0 = d[d["desconto_pct"] >= 30], d[d["desconto_pct"] == 0]
-        mesmo_volume = (len(a30) >= 30 and len(d0) >= 30
-                        and abs(a30["quantidade"].mean() - d0["quantidade"].mean()) < 0.1
-                        and abs(a30["receita_bruta"].mean() / d0["receita_bruta"].mean() - 1) < 0.02)
-        texto = (f"{inteiro(len(acima))} pedidos ({pct(len(acima) / len(d) * 100)}) tiveram desconto acima de "
-                 f"25%, somando {brl(acima['desconto_reais'].sum())} em desconto.")
-        if mesmo_volume:
-            texto += (" Pedidos com 30% ou mais de desconto têm a mesma quantidade de itens e o mesmo ticket "
-                      "bruto dos pedidos sem desconto.")
-        recs.append(dict(
-            tema="Desconto", aba="Desconto", valor=excedente, rotulo="de desconto acima do teto de 25%",
-            titulo="Descontos acima de 25% sem ganho de volume" if mesmo_volume else "Descontos acima de 25%",
-            texto=texto, acao="Adotar teto de 25% no desconto por pedido, com aprovação obrigatória acima dele."))
-
-    baixo = d[d["receita_liquida"] < 100]
-    if len(baixo) >= 20:
-        tb = agregar(baixo).iloc[0]
-        if tb.margem_pct < total.margem_pct - 15:
-            recs.append(dict(
-                tema="Ticket", aba="Frete e entrega", valor=tb.frete, rotulo="de frete em pedidos até R$ 100",
-                titulo="Pedidos até R$ 100 quase não geram margem",
-                texto=(f"{inteiro(tb.pedidos)} pedidos até R$ 100 têm margem de {pct(tb.margem_pct)}, contra "
-                       f"{pct(total.margem_pct)} no total. O frete consome {pct(tb.frete_pct)} da receita desses pedidos."),
-                acao="Definir valor mínimo de pedido ou cobrar frete integral abaixo de R$ 100."))
-
-    dev = d[d["devolvido"]]
-    if len(dev) >= 20:
-        op = dev[dev["motivo_devolucao"].isin(OPERACIONAIS)]
-        custo = op["custo_produto"].sum() + op["custo_frete"].sum()
-        if len(op):
-            texto = (f"{pct(len(op) / len(dev) * 100, 0)} das devoluções são por defeito ou atraso na entrega "
-                     f"e custaram {brl(custo)} em CMV e frete.")
-            acao = "Auditar fornecedores dos produtos com mais devoluções por defeito"
-            if len(mk) and len(fora):
-                pm, pf = mk["tempo_entrega_real"].mean(), fora["tempo_entrega_real"].mean()
-                if pm - pf >= 2:
-                    texto += f" O prazo médio do Marketplace é de {num(pm)} dias, contra {num(pf)} nos demais canais."
-                    acao += " e renegociar o prazo de entrega do Marketplace"
-            recs.append(dict(tema="Devolução", aba="Devoluções", valor=custo, rotulo="de CMV e frete perdidos",
-                             titulo="Devoluções por defeito e atraso", texto=texto, acao=acao + "."))
-
-    meses = agregar(d, "ano_mes")
-    meses = meses[meses["pedidos"] >= 100]
-    if len(meses) >= 3:
-        pico = meses["desconto_pct"].idxmax()
-        mediana = meses.drop(pico)["desconto_pct"].median()
-        excesso = meses.loc[pico, "desconto_pct"] - mediana
-        if excesso >= 1:
-            nome = mes_rotulo(pico, extenso=True)
-            texto = (f"Em {nome} o desconto chegou a {pct(meses.loc[pico, 'desconto_pct'])} da receita bruta, "
-                     f"contra mediana de {pct(mediana)} nos demais meses.")
-            if meses["pedidos"].idxmax() == pico:
-                texto += " Foi também o mês de maior volume de pedidos."
-            recs.append(dict(
-                tema="Sazonalidade", aba="Desconto", valor=excesso / 100 * meses.loc[pico, "receita_bruta"],
-                rotulo="de desconto acima da mediana no mês", titulo=f"Desconto fora do padrão em {nome}",
-                texto=texto,
-                acao="Planejar campanhas de meses de pico com desconto limitado à mediana dos demais meses."))
-    return sorted(recs, key=lambda r: -r["valor"])
-
-
-RECS = gerar_insights(df)
-REC = {r["tema"]: r for r in RECS}
-
-
-def insight_do_tema(tema):
-    r = REC.get(tema)
-    if r:
-        insight(r["texto"], r["acao"])
 
 
 # ======================================================================
@@ -1123,18 +1062,15 @@ def montar_contexto():
                                         "satisfacao_media": "csat", "pendentes": "pendentes"}),
         }
 
-    ctx["sinais_detectados_por_regras"] = [{"tema": r["tema"], "titulo": r["titulo"], "valor_rs": _r(r["valor"])}
-                                           for r in RECS]
     return ctx
 
 
 # ======================================================================
-# CARTÕES DE RECOMENDAÇÃO (regras e Elo Agents)
+# CARTÕES DE INSIGHT DO ELO AGENTS
 # ======================================================================
 def _rec_html(i, tema, titulo, texto, acao, topo_direita, valor_html="", rodape=""):
-    cor = TEMA_COR.get(tema, VIOLETA)
     return (f'<div class="rec"><div class="rec-topo"><span class="rank">{i:02d}</span>'
-            f'<span class="tema" style="background:{cor}33;border:1px solid {cor}80">{esc(tema)}</span>'
+            f'<span class="tema">{esc(tema)}</span>'
             f'<span class="rec-aba">{topo_direita}</span></div>'
             f'<div class="rec-titulo">{esc(titulo)}</div><div class="rec-texto">{esc(texto)}</div>'
             f'{valor_html}<div class="rec-acao"><b>Ação:</b> {esc(acao)}</div>{rodape}</div>')
@@ -1146,17 +1082,6 @@ def _valor_html(valor, rotulo, maior, fonte=""):
     largura = max(4, abs(valor) / maior * 100) if maior else 4
     return (f'<div class="rec-valor" title="{esc(fonte)}"><b>{brl_c(valor)}</b>{esc(rotulo)}</div>'
             f'<div class="medidor"><span style="width:{largura:.0f}%"></span></div>')
-
-
-def render_recs_regras():
-    if not RECS:
-        nota("Nenhum ponto de atenção com amostra suficiente neste recorte.")
-        return
-    maior = max(r["valor"] for r in RECS)
-    st.markdown('<div class="recs">' + "".join(
-        _rec_html(i, r["tema"], r["titulo"], r["texto"], r["acao"], f'Aba {esc(r["aba"])}',
-                  _valor_html(r["valor"], r["rotulo"], maior))
-        for i, r in enumerate(RECS, start=1)) + "</div>", unsafe_allow_html=True)
 
 
 def _selo_conferencia(faltam):
@@ -1227,15 +1152,15 @@ with abas[0]:
         aditiva = met_evo in ADITIVAS
         fig = go.Figure(go.Scatter(
             x=rotulo_x, y=serie[met_evo], mode="lines+markers" if len(serie) <= 40 else "lines",
-            line=dict(color=VIOLETA, width=2.5),
-            marker=dict(size=8, color=VIOLETA, line=dict(color=ROXO_ESCURO, width=2)),
+            line=dict(color=ACENTO, width=2.5),
+            marker=dict(size=8, color=ACENTO, line=dict(color=SUPERFICIE, width=2)),
             fill="tozeroy" if aditiva else None,
             fillgradient=dict(type="vertical", colorscale=[[0, "rgba(139,92,246,0)"], [1, "rgba(139,92,246,0.45)"]])
             if aditiva else None,
             hovertemplate=hover_num(info["tipo"], "y") + "<extra></extra>", name=info["nome"]))
         pico_i = int(np.nanargmax(serie[met_evo].values))
         fig.add_scatter(x=[rotulo_x[pico_i]], y=[serie[met_evo].iloc[pico_i]], mode="markers+text",
-                        marker=dict(size=11, color=ROSA, line=dict(color=ROXO_ESCURO, width=2)),
+                        marker=dict(size=11, color=SINAL, line=dict(color=SUPERFICIE, width=2)),
                         text=[f"Máximo: {fmt(serie[met_evo].iloc[pico_i], info['tipo'])}"], textposition="top center",
                         textfont=dict(size=11, color=TEXTO), hoverinfo="skip", showlegend=False)
         fig.update_layout(hovermode="x unified")
@@ -1260,13 +1185,6 @@ with abas[0]:
             fig.update_traces(hovertemplate="<b>%{y}</b><br>Margem: %{x:.1f}%<br>Receita: %{customdata[1]}<extra></extra>",
                               unselected=dict(marker=dict(opacity=1)))
             plot(fig, key=CHAVE_DRILL, selecionavel=True)
-            if "Marketplace" in t.index and len(t) > 1:
-                demais = agregar(df_sem_drill[df_sem_drill["canal"] != "Marketplace"]).iloc[0]
-                gap = demais.margem_pct - t.loc["Marketplace", "margem_pct"]
-                gap_frete = t.loc["Marketplace", "frete_pct"] - demais.frete_pct
-                if gap > 0:
-                    insight(f"O Marketplace tem margem {num(gap)} p.p. abaixo dos demais canais somados. "
-                            f"O frete, sozinho, pesa {num(gap_frete)} p.p. a mais na receita do Marketplace.")
     with c[1]:
         with card("ponte"):
             cabecalho("Composição da margem", "Da receita bruta à margem de contribuição")
@@ -1277,13 +1195,10 @@ with abas[0]:
                 text=[brl_c(K.receita_bruta), brl_c(-K.desconto), brl_c(-K.cmv), brl_c(-K.frete), brl_c(K.margem)],
                 textposition="outside", textfont=dict(size=11, color=TEXTO_2),
                 connector=dict(line=dict(color=BORDA_FORTE, width=1)),
-                decreasing=dict(marker=dict(color=ROSA)), increasing=dict(marker=dict(color=VIOLETA)),
-                totals=dict(marker=dict(color=VIOLETA)), hovertemplate="%{x}: %{text}<extra></extra>"))
+                decreasing=dict(marker=dict(color=RUIM)), increasing=dict(marker=dict(color=BOM)),
+                totals=dict(marker=dict(color=ACENTO)), hovertemplate="%{x}: %{text}<extra></extra>"))
             fig.update_yaxes(range=[0, K.receita_bruta * 1.15], tickprefix="R$ ", tickformat="~s")
             plot(estilo(fig, H_M))
-            insight(f"Desconto e frete somam {brl_c(K.desconto + K.frete)}, "
-                    f"{pct((K.desconto + K.frete) / K.receita_bruta * 100)} da receita bruta. São as deduções "
-                    f"que dependem de decisão comercial; o CMV representa {pct(K.cmv_pct)} da receita líquida.")
 
     with card("recs"):
         cabecalho("Insights e ações recomendadas",
@@ -1293,10 +1208,8 @@ with abas[0]:
         if not elo_agents.configurado():
             aviso("Elo Agents não configurado",
                   'Crie o arquivo .streamlit/secrets.toml com a linha ELOAGENTS_API_KEY = "sua-chave" (no deploy, '
-                  "cadastre o mesmo nome em Secrets) e recarregue a página. Enquanto isso, seguem os sinais "
-                  "calculados por regras, sem IA.")
-            st.markdown('<div class="subtitulo-recs">Sinais calculados por regras (sem IA)</div>', unsafe_allow_html=True)
-            render_recs_regras()
+                  "cadastre o mesmo nome em Secrets) e recarregue a página. Os insights deste painel são "
+                  "gerados sob demanda pelo Elo Agents.")
         else:
             c = st.columns([4, 1.1, 1.2], gap="small", vertical_alignment="bottom")
             pergunta = c[0].text_input("Pergunta ou foco da análise (opcional)", key="ia_pergunta",
@@ -1337,8 +1250,6 @@ with abas[0]:
             elif not erro:
                 nota("Clique em Gerar insights para o Elo Agents analisar o recorte atual. Os indicadores enviados "
                      "ficam visíveis depois da análise, em 'Dados enviados ao Elo Agents'.")
-            with st.expander("Sinais calculados por regras (sem IA)"):
-                render_recs_regras()
 
 # ======================================================================
 # EXPLORAR (self-service)
@@ -1410,7 +1321,7 @@ with abas[1]:
                 eixo_cat = [str(i) for i in tq.index]
                 kw = dict(x=eixo_cat, y=tq[q]) if dim in ORDENADAS else dict(y=eixo_cat, x=tq[q], orientation="h")
                 fig.add_bar(**kw, name=q, marker_color=CORES_DIM[quebra][q],
-                            marker_line=dict(color=ROXO_ESCURO, width=1.5),
+                            marker_line=dict(color=SUPERFICIE, width=1.5),
                             customdata=[[i, q] for i in eixo_cat],
                             hovertemplate=f"<b>%{{{'x' if dim in ORDENADAS else 'y'}}}</b> · {esc(q)}<br>"
                             + hover_num(info["tipo"], "y" if dim in ORDENADAS else "x") + "<extra></extra>")
@@ -1640,15 +1551,10 @@ with abas[2]:
             fig.update_annotations(font=dict(size=12, color=TEXTO_2))
             fig.update_layout(margin=dict(t=28))
             plot(fig)
-            if len(tc) > 1:
-                amp = tc.max() - tc.min()
-                insight(f"Entre os canais, o CMV varia {num(amp['cmv_pct'])} p.p. e o desconto {num(amp['desconto_pct'])} p.p. "
-                        f"O frete vai de {pct(tc['frete_pct'].min())} a {pct(tc['frete_pct'].max())} da receita, "
-                        f"com o maior peso em {tc['frete_pct'].idxmax()}.")
     with c[1]:
         with card("mapa_canais"):
             cabecalho("Receita e margem por canal e categoria",
-                      "Área = receita líquida. Cor = margem: rosa abaixo da média do recorte, ciano acima. "
+                      "Área = receita líquida. Cor = margem: cobre abaixo da média do recorte, indigo acima. "
                       "Clique num canal para abrir as categorias.")
             tcc = agregar(df, ["canal", "categoria"])
             media = K.margem_pct
@@ -1681,16 +1587,15 @@ with abas[2]:
             cores = ["rgba(0,0,0,0)"] + sample_colorscale(ESCALA_DIV, posicoes)
             fig = go.Figure(go.Treemap(
                 ids=ids, labels=rotulos, parents=pais, values=valores, branchvalues="total", customdata=extra,
-                marker=dict(colors=cores, line=dict(color=ROXO_ESCURO, width=2), cornerradius=6),
+                marker=dict(colors=cores, line=dict(color=SUPERFICIE, width=2), cornerradius=6),
                 texttemplate="<b>%{label}</b><br>%{customdata[0]}<br>%{customdata[1]}",
                 # no tema claro o centro da escala é claro: rótulo escuro nos blocos próximos da média
-                textfont=dict(size=12, color=[TEXTO] + [TEXTO_CELULA if TEMA_CLARO and abs(p_ - 0.5) < 0.3
-                                                        else "#FFFFFF" for p_ in posicoes]),
+                textfont=dict(size=12, color=[TEXTO] + [cor_rotulo_div(p_) for p_ in posicoes]),
                 hovertemplate="<b>%{label}</b><br>Receita: %{customdata[0]}<br>Margem: %{customdata[1]}<extra></extra>",
                 pathbar=dict(visible=True, textfont=dict(color=TEXTO_2)), tiling=dict(pad=3), maxdepth=3))
             fig.update_layout(height=H_M + 10, paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=26, b=0),
-                              font=dict(family="Inter, Helvetica, Arial, sans-serif", color=TEXTO_2),
-                              hoverlabel=dict(bgcolor=ROXO_AMEIXA, bordercolor=BORDA_FORTE, font=dict(color=TEXTO)),
+                              font=dict(family=FONTE, color=TEXTO_2),
+                              hoverlabel=dict(bgcolor=DESTAQUE, bordercolor=BORDA_FORTE, font=dict(color=TEXTO)),
                               separators=",.", uniformtext=dict(minsize=10, mode="hide"))
             plot(fig)
             st.markdown(f'<div class="legenda-div"><span>{pct(media - desvio)}</span><div class="barra-div"></div>'
@@ -1710,7 +1615,7 @@ with abas[2]:
         for gname in [x for x in cores_g if x in tm.columns]:
             fig.add_scatter(x=[str(i) for i in tm.index], y=tm[gname], name=gname, mode="lines+markers",
                             line=dict(color=cores_g[gname], width=2.5),
-                            marker=dict(size=8, color=cores_g[gname], line=dict(color=ROXO_ESCURO, width=2)),
+                            marker=dict(size=8, color=cores_g[gname], line=dict(color=SUPERFICIE, width=2)),
                             hovertemplate=f"{esc(gname)}: %{{y:.1f}}%<extra></extra>")
         fig.update_layout(hovermode="x unified")
         fig.update_yaxes(ticksuffix="%")
@@ -1739,11 +1644,6 @@ with abas[3]:
             cabecalho("Itens por pedido, por faixa de desconto", "Quantidade média de itens")
             plot(colunas([str(i) for i in fx.index], fx["itens_pedido"], "dec", altura=H_P,
                          hover_extra=[f"{inteiro(p)} pedidos" for p in fx["pedidos"]]))
-    rec = REC.get("Desconto")
-    if rec:
-        with card("insight_desconto"):
-            insight(rec["texto"], rec["acao"])
-
     tmes = agregar(df, "mes_rotulo")
     tmes = tmes[tmes["pedidos"] > 0]
     c = st.columns(2, gap="small")
@@ -1759,8 +1659,8 @@ with abas[3]:
             pior = str(tmes["margem_pct"].idxmin())
             fig = go.Figure(go.Scatter(
                 x=[str(i) for i in tmes.index], y=tmes["margem_pct"], mode="lines+markers",
-                line=dict(color=VIOLETA, width=2.5),
-                marker=dict(size=9, line=dict(color=ROXO_ESCURO, width=2),
+                line=dict(color=ACENTO, width=2.5),
+                marker=dict(size=9, line=dict(color=SUPERFICIE, width=2),
                             color=[COR_FOCO if str(i) == pior else COR_BASE for i in tmes.index]),
                 hovertemplate="<b>%{x}</b><br>%{y:.2f}%<extra></extra>"))
             fig.add_annotation(x=pior, y=tmes.loc[tmes.index.astype(str) == pior, "margem_pct"].iloc[0],
@@ -1768,11 +1668,6 @@ with abas[3]:
                                font=dict(size=11, color=TEXTO))
             fig.update_yaxes(ticksuffix="%", tickformat=".1f")
             plot(estilo(fig, H_P))
-    rec = REC.get("Sazonalidade")
-    if rec:
-        with card("insight_sazonal"):
-            insight(rec["texto"], rec["acao"])
-
     with card("desc25_canal"):
         cabecalho("Pedidos com desconto acima de 25%, por canal", "Participação nos pedidos do canal")
         tcd = df.assign(acima=df["desconto_pct"] > 25).groupby("canal").agg(
@@ -1807,23 +1702,11 @@ with abas[4]:
             if set(tg["gratis"].round(6)) == {0.0, 100.0} and len(tg) == 3:
                 nota("A regra observada é exata: frete grátis em 100% dos pedidos a partir de R$ 250 fora do "
                      "Marketplace e em nenhum pedido do Marketplace.")
-            insight_do_tema("Frete")
     with c[1]:
         with card("prazo_canal"):
             cabecalho("Prazo médio de entrega por canal", "Dias entre pedido e entrega")
             tp = agregar(df, "canal")
             plot(barras_h(tp, "prazo", "dec", foco={tp["prazo"].idxmax()}, altura=H_P - 60))
-            mk_ = df[df["canal"] == "Marketplace"]
-            fora_ = df[df["canal"] != "Marketplace"]
-            if len(mk_) and len(fora_):
-                dif = mk_["tempo_entrega_real"].mean() - fora_["tempo_entrega_real"].mean()
-                if dif >= 2:
-                    at_mk = (mk_["motivo_devolucao"] == "Atraso na entrega").mean() * 100
-                    at_fora = (fora_["motivo_devolucao"] == "Atraso na entrega").mean() * 100
-                    insight(f"O Marketplace entrega em {num(mk_['tempo_entrega_real'].mean())} dias em média, "
-                            f"{num(dif)} dias a mais que os demais canais. Devoluções por atraso: "
-                            f"{pct(at_mk)} dos pedidos do Marketplace, contra {pct(at_fora)} nos demais.",
-                            "Revisar o SLA logístico do Marketplace e acompanhar o prazo semanalmente.")
 
     ft = agregar(df, "faixa_ticket")
     c = st.columns(2, gap="small")
@@ -1837,11 +1720,6 @@ with abas[4]:
             cabecalho("Margem de contribuição por faixa de ticket", "Em % da receita líquida")
             plot(colunas([str(i) for i in ft.index], ft["margem_pct"], "pct", foco={str(ft.index[0])}, altura=H_P,
                          hover_extra=[f"{inteiro(p)} pedidos" for p in ft["pedidos"]]))
-    rec = REC.get("Ticket")
-    if rec:
-        with card("insight_ticket"):
-            insight(rec["texto"], rec["acao"])
-
     eleg = df[df["mk_elegivel_nao_subsidiado"]]
     with card("frete_mk_mes"):
         if len(eleg):
@@ -1877,27 +1755,16 @@ with abas[5]:
                                customdata=[[i, brl_c(tmv.loc[i, "custo"])] for i in tmv.sort_values("pedidos").index])
                 fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.0f} pedidos<br>%{customdata[1]} em CMV e frete<extra></extra>")
                 plot(fig)
-                insight_do_tema("Devolução")
         with c[1]:
             with card("dev_prazo"):
                 cabecalho("Taxa de devolução por prazo de entrega", "Pedidos devolvidos sobre pedidos da faixa")
                 tpz = agregar(df, "faixa_prazo")
                 plot(colunas([str(i) for i in tpz.index], tpz["taxa_dev"], "pct", altura=H_P,
                              hover_extra=[f"{inteiro(p)} pedidos" for p in tpz["pedidos"]]))
-                curtas = df.loc[df["tempo_entrega_real"] <= 7, "devolvido"].mean() * 100
-                longas = df.loc[df["tempo_entrega_real"] > 7, "devolvido"].mean() * 100
-                if pd.notna(curtas) and pd.notna(longas):
-                    if longas - curtas >= 0.5:
-                        insight(f"Entregas acima de 7 dias têm devolução de {pct(longas)}, contra {pct(curtas)} nas de "
-                                f"até 7 dias ({num(longas - curtas)} p.p.). A relação é fraca, mas consistente com o "
-                                f"peso das devoluções por atraso.")
-                    else:
-                        insight(f"Sem diferença relevante entre entregas acima de 7 dias ({pct(longas)}) e até 7 dias "
-                                f"({pct(curtas)}).")
 
         with card("dev_mapa"):
             cabecalho("Taxa de devolução por canal e categoria", "Em % dos pedidos de cada combinação; "
-                      + ("mais escuro = maior" if TEMA_CLARO else "mais claro = maior"))
+                      + ("mais claro = maior" if TEMA_ESCURO else "mais escuro = maior"))
             tq = agregar(df, ["canal", "categoria"])["taxa_dev"].unstack("categoria")
             tq = tq.reindex([ch for ch in COR_CANAL if ch in tq.index])[[x for x in COR_CATEGORIA if x in tq.columns]]
             fig = go.Figure(go.Heatmap(
@@ -1963,15 +1830,6 @@ with abas[6]:
                                                 "<br>%{customdata[2]} por chamado<br>Satisfação: %{customdata[3]}"
                                                 "<extra></extra>")
                 plot(fig)
-                if len(pc) > 1:
-                    caro, barato = pc["custo_chamado"].idxmax(), pc["custo_chamado"].idxmin()
-                    insight(f"No {caro}, cada chamado custa {brl(pc.loc[caro, 'custo_chamado'], 2)}, contra "
-                            f"{brl(pc.loc[barato, 'custo_chamado'], 2)} no {barato}. O {caro} recebe "
-                            f"{pct(pc.loc[caro, 'part_chamados'])} dos chamados e gera "
-                            f"{pct(pc.loc[caro, 'part_custo'])} do custo. A satisfação média é "
-                            f"{num(pc.loc[caro, 'csat'], 2)} no {caro} e {num(pc.loc[barato, 'csat'], 2)} no {barato}.",
-                            f"Direcionar os chamados de '{pm['chamados'].idxmax()}', o motivo mais frequente, para o "
-                            f"{barato} e acompanhar o tempo de primeira resposta no {caro}.")
         with c[1]:
             with card("sac_csat"):
                 cabecalho("Satisfação por motivo do chamado", "Nota média dada pelo cliente, de 1 a 5")
@@ -1983,13 +1841,6 @@ with abas[6]:
                                                 "(%{customdata[2]})<extra></extra>")
                 fig.update_xaxes(range=[0, 5.6])
                 plot(fig)
-                pior, maior = pm["csat"].idxmin(), pm["chamados"].idxmax()
-                texto = (f"'{pior}' tem a menor satisfação, {num(pm.loc[pior, 'csat'], 2)}, e responde por "
-                         f"{pct(pm.loc[pior, 'part_chamados'])} dos chamados.")
-                if maior != pior:
-                    texto += (f" O motivo mais frequente é '{maior}', com {pct(pm.loc[maior, 'part_chamados'])} "
-                              f"do volume e nota {num(pm.loc[maior, 'csat'], 2)}.")
-                insight(texto)
 
         c = st.columns(2, gap="small")
         with c[0]:
@@ -2005,21 +1856,11 @@ with abas[6]:
                              hover_extra=[f"{num(v)} por 100 pedidos" if pd.notna(v) else "sem pedidos no mês"
                                           for v in tm_["por_100"]]))
                 nota("Meses nas pontas do período podem estar incompletos.")
-                validos = tm_[tm_["pedidos"] >= 100]
-                if len(validos) >= 3:
-                    acompanha = validos["chamados"].corr(validos["pedidos"]) >= 0.8
-                    insight(("O volume de chamados acompanha o de pedidos: " if acompanha else "")
-                            + f"de {num(validos['por_100'].min())} a {num(validos['por_100'].max())} chamados por "
-                            f"100 pedidos, conforme o mês. O pico de chamados foi em "
-                            f"{mes_rotulo(tm_['chamados'].idxmax(), extenso=True)}.")
         with c[1]:
             with card("sac_resposta"):
                 cabecalho("Tempo até a primeira resposta, por canal de entrada", "Mediana, em horas")
                 pc["resposta_h"] = pc["resposta_min"] / 60
                 plot(barras_h(pc, "resposta_h", "dec", foco={pc["resposta_h"].idxmax()}, altura=H_P))
-                lento = pc["resposta_h"].idxmax()
-                insight(f"O {lento} leva {tempo_txt(pc.loc[lento, 'resposta_min'])} até a primeira resposta, em "
-                        f"mediana, e tem {inteiro(pc.loc[lento, 'pendentes'])} chamados pendentes no período.")
 
         with st.expander("Ver chamados por motivo e canal de entrada"):
             cruz = pd.crosstab(atd["categoria_problema"], atd["canal_entrada"], margins=True, margins_name="Total")
@@ -2115,8 +1956,8 @@ with abas[8]:
                 text=[brl_c(v) for v in [K.margem_real, ganho_frete, ganho_desc, ganho_dev, topo]],
                 textposition="outside", textfont=dict(size=11, color=TEXTO_2),
                 connector=dict(line=dict(color=BORDA_FORTE, width=1)),
-                increasing=dict(marker=dict(color=BOM)), totals=dict(marker=dict(color=VIOLETA)),
-                decreasing=dict(marker=dict(color=ROSA)), hovertemplate="%{x}: %{text}<extra></extra>"))
+                increasing=dict(marker=dict(color=BOM)), totals=dict(marker=dict(color=ACENTO)),
+                decreasing=dict(marker=dict(color=RUIM)), hovertemplate="%{x}: %{text}<extra></extra>"))
             fig.update_yaxes(range=[0, max(topo, K.margem_real) * 1.15], tickprefix="R$ ", tickformat="~s")
             plot(estilo(fig, H_M))
             nota("A ponte parte da margem realizada porque a alavanca de devoluções só existe nessa métrica. "
