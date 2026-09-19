@@ -701,8 +701,9 @@ def carregar_atendimento():
     # (a maioria dos order_id não existe em vendas e parte dos chamados abre antes do pedido).
     try:
         a = pd.read_csv("atendimento_tratado.csv", parse_dates=["data_abertura"], usecols=[
-            "ticket_id", "data_abertura", "canal_entrada", "categoria_problema", "status_atendimento",
-            "nota_csat", "tempo_primeira_resposta_minutos", "custo_operacional_ticket", "pendente"])
+            "ticket_id", "order_id", "data_abertura", "canal_entrada", "categoria_problema",
+            "status_atendimento", "nota_csat", "tempo_primeira_resposta_minutos",
+            "custo_operacional_ticket", "pendente"])
     except (FileNotFoundError, ValueError):
         return None
     a["dia"] = a["data_abertura"].dt.normalize()
@@ -710,6 +711,19 @@ def carregar_atendimento():
 
 
 ATD = carregar_atendimento()
+
+
+def custo_atendimento(pedidos):
+    """Custo dos chamados ligados aos pedidos do recorte e abertos depois do pedido.
+
+    Mesma definição do business case (nota NE7): exclui os chamados que abrem antes
+    do pedido, porque não podem ser consequência dele.
+    """
+    if ATD is None or not len(pedidos):
+        return 0.0
+    datas = pedidos.drop_duplicates("order_id").set_index("order_id")["data_pedido"]
+    lig = ATD[ATD["order_id"].isin(datas.index)]
+    return float(lig.loc[lig["data_abertura"] >= lig["order_id"].map(datas), "custo_operacional_ticket"].sum())
 
 
 def tabelas_atendimento(a):
@@ -861,8 +875,14 @@ kpi(k[0], "Receita líquida", brl_c(K.receita), f"{brl_c(K.receita_bruta)} bruta
     "Receita bruta menos descontos", "receita")
 kpi(k[1], "Margem de contribuição", pct(K.margem_pct, 2), f"{brl_c(K.margem)}", "margem_pct",
     "Receita líquida menos CMV e frete, sobre a receita líquida", "margem", destaque=True)
-kpi(k[2], "Margem realizada", pct(K.margem_real_pct, 2), "após devoluções", "margem_real_pct",
-    "Pedido devolvido perde a receita e mantém CMV e frete (premissa do tratamento)", "realizada")
+CUSTO_SAC = custo_atendimento(df)
+SAC_ATRIBUIVEL = CUSTO_SAC > 0
+MARGEM_REAL_SAC = ((K.margem_real - CUSTO_SAC) / K.receita_real * 100) if K.receita_real else np.nan
+kpi(k[2], "Margem realizada", pct(K.margem_real_pct, 2),
+    f"{pct(MARGEM_REAL_SAC, 2)} com atendimento" if SAC_ATRIBUIVEL else "após devoluções", "margem_real_pct",
+    "Pedido devolvido é reembolsado: perde a receita e o frete de ida, e o item volta ao estoque, "
+    "então o CMV não conta como perda. A linha de baixo desconta ainda os chamados ligados a esses "
+    "pedidos, abertos depois do pedido (mesma definição do business case)", "realizada")
 kpi(k[3], "Pedidos", inteiro(K.pedidos), f"{inteiro(K.itens)} itens", "pedidos", "Pedidos aprovados", "pedidos")
 kpi(k[4], "Ticket médio", brl(K.ticket, 2), f"{num(K.itens_pedido, 2)} itens/pedido", "ticket",
     "Receita líquida por pedido", "ticket")
@@ -917,7 +937,8 @@ def assinatura_recorte():
 
 DEFINICOES = {
     "margem_contribuicao": "receita líquida menos CMV e frete, sobre pedidos aprovados",
-    "margem_realizada": "considera que pedidos devolvidos perdem a receita e mantêm CMV e frete",
+    "margem_realizada": ("pedido devolvido é reembolsado: perde a receita e o frete de ida; o item volta ao "
+                         "estoque, então o CMV não conta como perda. Mesma definição do business case"),
     "desconto_pct_receita_bruta": "desconto concedido sobre a receita bruta",
     "frete_rs": "custo de frete pago pela Vértice no pedido; reduz a margem",
     "frete_gratis": ("pedido sem custo de frete para a Vértice. Nos canais fora do Marketplace, pedidos a "
@@ -944,7 +965,9 @@ def montar_contexto():
         "totais": {**{k: _r(K[c]) for k, c in CAMPOS_GERAIS.items()},
                    "receita_bruta_rs": _r(K.receita_bruta), "desconto_rs": _r(K.desconto), "frete_rs": _r(K.frete),
                    "cmv_rs": _r(K.cmv), "itens_por_pedido": _r(K.itens_pedido),
-                   "pedidos_devolvidos": int(K.devolvidos), "pedidos_margem_negativa": int(K.negativos)},
+                   "pedidos_devolvidos": int(K.devolvidos), "pedidos_margem_negativa": int(K.negativos),
+                   **({"custo_atendimento_rs": _r(CUSTO_SAC),
+                       "margem_realizada_com_atendimento_pct": _r(MARGEM_REAL_SAC)} if SAC_ATRIBUIVEL else {})},
     }
     if KA is not None:
         ctx["periodo_anterior_mesma_duracao"] = {
@@ -979,11 +1002,11 @@ def montar_contexto():
 
     dev_ = df[df["devolvido"]]
     if len(dev_):
-        mv = dev_.groupby("motivo_devolucao").agg(pedidos=("order_id", "count"), cmv=("custo_produto", "sum"),
-                                                  frete=("custo_frete", "sum"))
+        mv = dev_.groupby("motivo_devolucao").agg(pedidos=("order_id", "count"), receita=("receita_liquida", "sum"),
+                                                  cmv=("custo_produto", "sum"))
         ctx["devolucoes_por_motivo"] = {
             m: {"pedidos": int(r.pedidos), "pct_das_devolucoes": _r(r.pedidos / len(dev_) * 100),
-                "cmv_mais_frete_perdido_rs": _r(r.cmv + r.frete)} for m, r in mv.iterrows()}
+                "margem_perdida_rs": _r(r.receita - r.cmv)} for m, r in mv.iterrows()}
     cc = agregar(df, ["canal", "categoria"])
     ctx["margem_pct_canal_x_categoria"] = {f"{a} | {b}": _r(cc.loc[(a, b), "margem_pct"]) for a, b in cc.index}
 
@@ -1007,7 +1030,7 @@ def montar_contexto():
     ctx["valores_calculados_rs"] = {
         "desconto_excedente_acima_de_25pct": _r(((acima["desconto_pct"] - 25) / 100 * acima["receita_bruta"]).sum()),
         "frete_marketplace_pedidos_a_partir_250": _r(eleg_["custo_frete"].sum()),
-        "cmv_mais_frete_devolucoes_defeito_ou_atraso": _r(oper["custo_produto"].sum() + oper["custo_frete"].sum()),
+        "margem_perdida_devolucoes_defeito_ou_atraso": _r(oper["receita_liquida"].sum() - oper["custo_produto"].sum()),
         "frete_pedidos_ate_100": _r(df.loc[df["receita_liquida"] < 100, "custo_frete"].sum()),
     }
     ctx["alertas"] = {
@@ -1015,7 +1038,7 @@ def montar_contexto():
         "desconto_acima_de_30pct": {"pedidos": int(len(d30)), "desconto_total_rs": _r(d30["desconto_reais"].sum())},
         "marketplace_pagando_frete_a_partir_250": {"pedidos": int(len(eleg_)), "frete_total_rs": _r(eleg_["custo_frete"].sum())},
         "devolucao_por_defeito_ou_atraso": {"pedidos": int(len(oper)),
-                                             "cmv_mais_frete_rs": _r(oper["custo_produto"].sum() + oper["custo_frete"].sum())},
+                                             "margem_perdida_rs": _r(oper["receita_liquida"].sum() - oper["custo_produto"].sum())},
     }
 
     tp = agregar(df, "produto")
@@ -1767,11 +1790,12 @@ with abas[5]:
             with card("motivos"):
                 cabecalho("Devoluções por motivo", "Pedidos devolvidos; defeito e atraso em destaque")
                 tmv = dev.groupby("motivo_devolucao").agg(pedidos=("order_id", "count"),
-                                                          custo=("custo_produto", "sum"), frete=("custo_frete", "sum"))
-                tmv["custo"] += tmv["frete"]
+                                                          receita=("receita_liquida", "sum"),
+                                                          cmv=("custo_produto", "sum"))
+                tmv["custo"] = tmv["receita"] - tmv["cmv"]   # margem que deixou de se realizar
                 fig = barras_h(tmv, "pedidos", "int", foco=set(OPERACIONAIS), altura=H_P,
                                customdata=[[i, brl_c(tmv.loc[i, "custo"])] for i in tmv.sort_values("pedidos").index])
-                fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.0f} pedidos<br>%{customdata[1]} em CMV e frete<extra></extra>")
+                fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.0f} pedidos<br>%{customdata[1]} de margem perdida<extra></extra>")
                 plot(fig)
         with c[1]:
             with card("dev_prazo"):
@@ -1905,7 +1929,7 @@ with abas[7]:
             impacto = {"Margem negativa": sub["margem_contribuicao"].sum(),
                        "Desconto acima de 30%": sub["desconto_reais"].sum(),
                        "Marketplace pagando frete a partir de R$ 250": sub["custo_frete"].sum(),
-                       "Devolução por defeito ou atraso": sub["custo_produto"].sum() + sub["custo_frete"].sum()}[nome_a]
+                       "Devolução por defeito ou atraso": sub["receita_liquida"].sum() - sub["custo_produto"].sum()}[nome_a]
             resumo.append(f'<div class="stat"><div class="r">{esc(nome_a)}</div>'
                           f'<div class="v">{inteiro(len(sub))} pedidos</div><div class="r">{brl_c(impacto)}</div></div>')
         st.markdown('<div class="stats">' + "".join(resumo) + "</div>", unsafe_allow_html=True)
@@ -1944,17 +1968,28 @@ with abas[8]:
             adesao = st.slider("Adesão ao teto", 0, 100, 80, 5, format="%d%%", key="sim_adesao")
             red_dev = st.slider("Redução das devoluções por defeito ou atraso", 0, 100, 40, 5, format="%d%%",
                                 key="sim_dev")
-            nota("Premissas: o subsídio elimina o frete desses pedidos; o teto recupera a parte do desconto acima "
-                 "dele, ponderada pela adesão, sem perda de volume; cada devolução evitada deixa de perder CMV e "
-                 "frete. Valores referentes ao período filtrado.")
-    ganho_frete = df.loc[df["mk_elegivel_nao_subsidiado"], "custo_frete"].sum() * lev_frete / 100
-    m_teto = df["desconto_pct"] > teto
-    ganho_desc = ((df.loc[m_teto, "desconto_pct"] - teto) / 100 * df.loc[m_teto, "receita_bruta"]).sum() * adesao / 100
+            fora_nov = st.toggle("Excluir novembro do teto", value=True, key="sim_nov",
+                                 help="Novembro fica fora do teto e sob orçamento de campanha, como na "
+                                      "apresentação ao comitê. Desligue para aplicar o teto no ano todo.")
+            nota("Premissas do business case: as alavancas valem sobre pedidos mantidos (não devolvidos); o teto "
+                 "recupera a parte do desconto acima dele, ponderada pela adesão, sem perda de volume; cada "
+                 "devolução evitada recupera a receita menos o CMV. Valores referentes ao período filtrado.")
+    manter = ~df["devolvido"]
+    base_desc = df[manter & (df["mes"] != 11)] if fora_nov else df[manter]
+    ganho_frete = df.loc[df["mk_elegivel_nao_subsidiado"] & manter, "custo_frete"].sum() * lev_frete / 100
+    m_teto = base_desc["desconto_pct"] > teto
+    ganho_desc = (((base_desc.loc[m_teto, "desconto_pct"] - teto) / 100
+                   * base_desc.loc[m_teto, "receita_bruta"]).sum() * adesao / 100)
+    pct_afetados = m_teto.mean() * 100 if len(base_desc) else np.nan
     dev_op = df[df["devolvido"] & df["motivo_devolucao"].isin(OPERACIONAIS)]
-    ganho_dev = (dev_op["custo_produto"].sum() + dev_op["custo_frete"].sum()) * red_dev / 100
+    # Devolução evitada: o pedido deixa de perder o frete e passa a contribuir com a margem,
+    # e a receita dele volta ao denominador da margem realizada.
+    ganho_dev = (dev_op["receita_liquida"].sum() - dev_op["custo_produto"].sum()) * red_dev / 100
+    receita_recuperada = dev_op["receita_liquida"].sum() * red_dev / 100
     mc_nova = (K.margem + ganho_frete + ganho_desc) / K.receita * 100
-    mr_nova = ((K.margem_real + ganho_frete + ganho_desc + ganho_dev) / K.receita_real * 100
-               if K.receita_real else np.nan)
+    receita_real_nova = K.receita_real + receita_recuperada
+    mr_nova = ((K.margem_real + ganho_frete + ganho_desc + ganho_dev) / receita_real_nova * 100
+               if receita_real_nova else np.nan)
     with c[1]:
         with card("sim_resultado"):
             cabecalho("Resultado projetado")
@@ -1963,6 +1998,7 @@ with abas[8]:
                 (r[0], "Margem de contribuição", pct(mc_nova, 2), f"Atual {pct(K.margem_pct, 2)} · +{num(mc_nova - K.margem_pct, 2)} p.p."),
                 (r[1], "Margem realizada", pct(mr_nova, 2), f"Atual {pct(K.margem_real_pct, 2)} · +{num(mr_nova - K.margem_real_pct, 2)} p.p."),
                 (r[2], "Ganho total no período", brl_c(ganho_frete + ganho_desc + ganho_dev),
+                 f"{pct(pct_afetados)} dos pedidos no teto · "
                  f"{inteiro(len(dev_op) * red_dev / 100)} devoluções evitadas")]:
                 col.markdown(f'<div class="stat"><div class="r">{esc(rot)}</div><div class="v">{val}</div>'
                              f'<div class="r">{sub}</div></div>', unsafe_allow_html=True)
@@ -1982,6 +2018,7 @@ with abas[8]:
                  "Na margem de contribuição entram apenas frete e desconto.")
 
 st.markdown('<div class="nota" style="margin-top:20px">Definições: margem de contribuição = receita líquida − CMV − '
-            'frete, sobre pedidos aprovados. Margem realizada considera que pedidos devolvidos perdem a receita e '
-            'mantêm CMV e frete. Fontes: vendas_tratada.csv (pedidos, com o cadastro de estoque) e '
+            'frete, sobre pedidos aprovados. Margem realizada: o pedido devolvido perde a receita e o frete de ida, e '
+            'o item volta ao estoque (mesma definição do business case; o deck desconta ainda o custo de atendimento). '
+            'O business case cobre 2023: escolha o período "Ano de 2023" para reproduzir os números da apresentação. Fontes: vendas_tratada.csv (pedidos, com o cadastro de estoque) e '
             'atendimento_tratado.csv (chamados, recortados só pelo período).</div>', unsafe_allow_html=True)

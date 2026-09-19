@@ -26,9 +26,10 @@ SAÍDAS
 DEFINIÇÃO DE MARGEM ADOTADA
 ---------------------------
     Oficial : margem_contribuicao sobre status_pagamento = "Aprovado"  -> 54,34%
-    Ressalva: margem realizada, líquida de devolução                    -> 46,30%
-              (usar helper margem_realizada_pct(), NÃO somar a coluna
-               e dividir pela receita total — o denominador muda)
+    Realizada: líquida de devolução, premissa do business case          -> 54,07%
+              (devolvido perde receita e frete de ida; o CMV volta ao estoque.
+               Usar helper margem_realizada_pct(), NÃO somar a coluna e dividir
+               pela receita total — o denominador muda)
 """
 
 import io
@@ -128,11 +129,12 @@ df["ano"] = df["data_pedido"].dt.year
 df["mes"] = df["data_pedido"].dt.month
 df["ano_mes"] = df["data_pedido"].dt.to_period("M").astype(str)
 
-# --- Margem realizada (RESSALVA — ver helper abaixo) ------------------
-# Por linha: devolvido perde a margem E os custos não voltam.
-df["margem_realizada"] = np.where(
-    df["devolvido"], -(df["custo_produto"] + df["custo_frete"]), df["margem_contribuicao"]
-)
+# --- Margem realizada (premissa do business case) ---------------------
+# Pedido devolvido é reembolsado: perde a receita e o frete de ida. O item
+# volta ao estoque, então o CMV NÃO entra como perda. É a mesma definição da
+# apresentação ao comitê (linha "margem de contribuição realizada"), para que
+# painel e deck fechem no mesmo número.
+df["margem_realizada"] = np.where(df["devolvido"], -df["custo_frete"], df["margem_contribuicao"])
 # Receita que de fato se realiza (zero para devolvidos) — necessária para
 # calcular o PERCENTUAL corretamente.
 df["receita_realizada"] = np.where(df["devolvido"], 0.0, df["receita_liquida"])
@@ -280,7 +282,7 @@ M = df["margem_contribuicao"].sum()
 print("\n--- INDICADORES ---")
 print(f"Receita líquida ............. R$ {R:>14,.0f}")
 print(f"Margem de contribuição ...... R$ {M:>14,.0f}   ({M/R*100:.2f}%)   <- OFICIAL")
-print(f"Margem realizada (ressalva) . {margem_realizada_pct(df):.2f}%")
+print(f"Margem realizada ............. {margem_realizada_pct(df):.2f}%   (devolvido perde receita e frete; CMV volta ao estoque)")
 print(f"Desconto total .............. R$ {df['desconto_reais'].sum():>14,.0f}   ({df['desconto_reais'].sum()/df['receita_bruta'].sum()*100:.2f}% da rec. bruta)")
 print(f"  acima de 25% .............. R$ {df[df['desconto_acima_25']]['desconto_reais'].sum():>14,.0f}   ({df['desconto_acima_25'].sum():,} pedidos)")
 print(f"Frete total ................. R$ {df['custo_frete'].sum():>14,.0f}   ({df['custo_frete'].sum()/R*100:.2f}% da receita)")

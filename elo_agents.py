@@ -117,7 +117,7 @@ Regras:
 2. Todo número citado precisa existir no JSON, com o mesmo arredondamento ou com uma casa decimal a menos. Não faça contas novas: se precisar de uma diferença ou participação, use as que já vêm calculadas.
 3. Quando algo for hipótese ou interpretação, diga explicitamente que é uma hipótese.
 4. Cada ação recomendada deve ser concreta, executável por um gestor e ligada ao dado que a justifica.
-5. "valor_em_jogo" só deve ser preenchido com um valor em reais copiado do JSON que represente custo, perda ou oportunidade ligada à ação (por exemplo frete pago, desconto concedido ou excedente, CMV e frete perdidos em devoluções); informe o caminho do campo em "base_do_valor". Nunca use receita, margem ou totais de vendas como valor em jogo: nesses casos use null.
+5. "valor_em_jogo" só deve ser preenchido com um valor em reais copiado do JSON que represente custo, perda ou oportunidade ligada à ação (por exemplo frete pago, desconto concedido ou excedente, margem perdida em devoluções); informe o caminho do campo em "base_do_valor". Nunca use receita, margem ou totais de vendas como valor em jogo: nesses casos use null.
 6. Escreva em português do Brasil, com frases diretas, sem jargão, sem emojis e sem travessões.
 7. Se "amostra_pequena" for true, avise no resumo e seja cauteloso nas conclusões.
 8. Se houver uma pergunta do usuário, priorize respondê-la; os insights devem servir a essa pergunta.
