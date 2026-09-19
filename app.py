@@ -39,7 +39,8 @@ import elo_agents
 TEMA_ESCURO = st.query_params.get("tema") == "escuro"  # o design system é claro por padrão
 
 INDIGO_900, INDIGO_800, INDIGO_700, INDIGO_600 = "#0C0C74", "#12129E", "#1A1AC8", "#2E2CD6"
-LAVANDA_400, LAVANDA_300, LAVANDA_200, LAVANDA_100 = "#8E8BE6", "#A5A2E8", "#C9C7F5", "#E8E7FC"
+LAVANDA_400, LAVANDA_300, LAVANDA_200 = "#8E8BE6", "#A5A2E8", "#C9C7F5"
+LAVANDA_100, LAVANDA_050 = "#E8E7FC", "#F2F1FE"
 COBRE_700, COBRE_600, COBRE_500, COBRE_300 = "#8A3F14", "#B0521C", "#C96A2E", "#E2A97E"
 NAVY_900, NAVY_800, NAVY_700 = "#0E2036", "#16304C", "#1F4266"
 
@@ -60,12 +61,12 @@ if TEMA_ESCURO:
     BOM, RUIM, AVISO_TXT = "#35B58A", "#F2796F", "#E0A93F"
     BOM_SUAVE, RUIM_SUAVE, AVISO_SUAVE = "#13382F", "#3B2323", "#3A3122"
 else:
-    PAGINA = "#F6F6F4"       # off-white da marca
-    BARRA = "#FFFFFF"
-    SUPERFICIE = "#FFFFFF"
-    ELEVADO = "#EDEDE9"      # sunken
+    PAGINA = "#F1F0FB"       # off-white puxado para a lavanda da marca
+    BARRA = LAVANDA_100      # faixa de filtros em lavanda
+    SUPERFICIE = "#FFFFFF"   # cartão branco, que ganha destaque sobre a página tingida
+    ELEVADO = LAVANDA_050    # blocos internos
     DESTAQUE = LAVANDA_100
-    BORDA, BORDA_FORTE, GRADE = "#E3E3DF", "#C4C4CC", "#EDEDE9"
+    BORDA, BORDA_FORTE, GRADE = "#E1DFF2", "#C3BFE0", "#EBE9F8"
     TEXTO, TEXTO_2, TEXTO_3, TEXTO_4 = "#17171B", "#3A3A42", "#6B6B78", "#9A9AA6"
     ACENTO, ACENTO_FORTE = INDIGO_700, INDIGO_800
     ACENTO_TXT, ACENTO_SUAVE = INDIGO_700, LAVANDA_100
@@ -80,7 +81,7 @@ if TEMA_ESCURO:
     COR_BASE = "#7B78E6"     # série única
 else:
     SERIE = ["#0C0C74", "#18189F", "#2E2CD6", "#4F4DE4", "#6E6BEA", "#8E8BE6", "#ADABEC"]
-    COR_BASE = INDIGO_600
+    COR_BASE = "#5E5BE8"     # indigo mais vivo que o da marca, validado contra o cobre
 COR_FOCO = SINAL             # cobre: a entidade que o texto comenta
 COR_NEUTRA = BORDA_FORTE
 
@@ -100,6 +101,7 @@ else:
     ESCALA_SEQ = [[0, LAVANDA_100], [0.35, "#ADABEC"], [0.7, "#4F4DE4"], [1, INDIGO_800]]
     ESCALA_DIV = [[0, COBRE_600], [0.5, "#EDEDE9"], [1, INDIGO_600]]
 TEXTO_CELULA = "#17171B"     # rótulo escuro sobre célula clara
+FUNDO_PLOT = "rgba(0,0,0,0)" if TEMA_ESCURO else "rgba(232,231,252,.35)"  # véu lavanda na área do gráfico
 
 H_P, H_M, H_G = 280, 330, 380  # alturas padrão dos gráficos
 
@@ -143,16 +145,18 @@ html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, 
    color:$TEXTO_4; margin-top:6px; }
 .meta { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .pilula { display:inline-flex; align-items:center; gap:7px; font-family:$FONTE_MONO; font-size:10px;
-   letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_3; background:transparent;
-   border:1px solid $BORDA; border-radius:999px; padding:6px 12px; }
+   letter-spacing:0.16em; text-transform:uppercase; color:$ACENTO_FORTE; background:$ELEVADO;
+   border:1px solid $LINHA_ACENTO; border-radius:999px; padding:6px 12px; }
 .ponto { width:6px; height:6px; border-radius:50%; background:$ACENTO; }
 
 /* cartões */
 div[class*="st-key-card_"] { background:$SUPERFICIE; border:1px solid $BORDA; border-radius:10px;
    padding:24px; gap:.7rem; }
 [data-testid="stColumn"] div[class*="st-key-card_"] { height:100%; }
-div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
-.card-titulo { font-size:16px; font-weight:600; letter-spacing:-0.012em; color:$TEXTO; line-height:1.22; }
+div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENTO; padding:16px 24px 18px; }
+.card-titulo { font-size:16px; font-weight:600; letter-spacing:-0.012em; color:$TEXTO; line-height:1.22;
+   display:flex; align-items:center; gap:10px; }
+.card-titulo::before { content:""; flex:0 0 3px; width:3px; height:15px; border-radius:2px; background:$ACENTO; }
 .card-sub { font-size:13px; color:$TEXTO_3; margin-top:6px; line-height:1.5; max-width:86ch; }
 
 /* big numbers */
@@ -161,7 +165,8 @@ div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
 .kpi-topo { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .kpi-rotulo { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
    color:$TEXTO_3; line-height:1.35; min-height:27px; }
-.icone { flex:0 0 16px; height:16px; display:flex; align-items:center; justify-content:center; color:$TEXTO_4; }
+.icone { flex:0 0 28px; height:28px; display:flex; align-items:center; justify-content:center;
+   border-radius:8px; background:$ACENTO_SUAVE; color:$ACENTO; }
 .icone svg { width:15px; height:15px; }
 .kpi-valor { font-size:34px; font-weight:400; letter-spacing:-0.03em; color:$TEXTO; line-height:1;
    margin-top:14px; white-space:nowrap; }
@@ -173,6 +178,11 @@ div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
 .delta.ruim { color:$RUIM; background:$RUIM_SUAVE; }
 .delta.neutro { color:$TEXTO_3; background:$ELEVADO; }
 .spark { display:block; margin-top:auto; width:100%; height:30px; }
+.kpi.escuro { background:$KPI_DESTAQUE; border-color:$KPI_DESTAQUE; }
+.kpi.escuro .kpi-rotulo { color:$LAVANDA_200; }
+.kpi.escuro .kpi-valor { color:#FFFFFF; }
+.kpi.escuro .kpi-linha { color:$TEXTO_ESCURO_2; }
+.kpi.escuro .icone { background:#FFFFFF1A; color:$LAVANDA_200; }
 
 /* insight do Elo Agents */
 .insight { background:$ACENTO_SUAVE; border:1px solid $LINHA_ACENTO; border-radius:10px; padding:14px 16px; }
@@ -190,7 +200,7 @@ div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
 .rec { border:1px solid $BORDA; border-radius:10px; padding:20px; display:flex; flex-direction:column;
    gap:10px; background:$SUPERFICIE; }
 .rec-topo { display:flex; align-items:center; gap:10px; }
-.rank { font-family:$FONTE_MONO; font-size:11px; letter-spacing:0.16em; color:$TEXTO_4; }
+.rank { font-family:$FONTE_MONO; font-size:11px; letter-spacing:0.16em; color:$ACENTO; }
 .tema { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em; text-transform:uppercase;
    color:$ACENTO_FORTE; background:$ACENTO_SUAVE; border-radius:999px; padding:4px 10px; }
 .rec-aba { margin-left:auto; font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em;
@@ -212,7 +222,7 @@ div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
    letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_2; background:$DESTAQUE;
    border:1px solid $LINHA_ACENTO; border-radius:999px; padding:6px 12px; }
 .stats { display:flex; flex-wrap:wrap; gap:12px; }
-.stat { background:$SUPERFICIE; border:1px solid $BORDA; border-radius:10px; padding:14px 18px; min-width:196px; }
+.stat { background:$ELEVADO; border:1px solid $LINHA_ACENTO; border-radius:10px; padding:14px 18px; min-width:196px; }
 .stat .r { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_4; }
 .stat .v { font-size:24px; font-weight:400; letter-spacing:-0.03em; color:$TEXTO; margin:6px 0 4px; }
 .legenda-div { display:flex; align-items:center; gap:10px; font-family:$FONTE_MONO; font-size:10px;
@@ -240,12 +250,14 @@ div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
    border-radius:0; padding:0; box-shadow:none !important; }
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display:none !important; }
 [data-testid="stTabs"] > div:first-child { border-bottom:none !important; box-shadow:none !important; }
-[data-testid="stTab"] { background:transparent !important; color:$TEXTO_3 !important; padding:10px 16px !important;
-   border:none !important; border-bottom:2px solid transparent !important; border-radius:0 !important; }
+[data-testid="stTab"] { background:transparent !important; color:$TEXTO_3 !important; padding:9px 16px !important;
+   border:none !important; border-radius:999px !important; margin-bottom:6px; }
 [data-testid="stTab"] p { color:inherit !important; font-weight:500 !important; font-size:13.5px !important; }
 [data-testid="stTab"]:hover { color:$TEXTO !important; }
-[data-testid="stTab"][aria-selected="true"] { color:$ACENTO_TXT !important;
-   border-bottom-color:$ACENTO !important; background:transparent !important; box-shadow:none !important; }
+[data-testid="stTab"]:hover { background:$ACENTO_SUAVE !important; }
+[data-testid="stTab"][aria-selected="true"] { color:#FFFFFF !important; background:$ACENTO !important;
+   box-shadow:none !important; font-weight:600; }
+[data-testid="stTab"][aria-selected="true"]:hover { background:$ACENTO_FORTE !important; }
 [data-testid="stTabs"] [role="tabpanel"] { padding-top:18px; }
 
 /* controles */
@@ -291,6 +303,9 @@ div[class*="st-key-card_filtros"] { padding:16px 24px 18px; }
     LINHA_ACENTO=LAVANDA_200 if not TEMA_ESCURO else "#3A4E86",
     BOM=BOM, RUIM=RUIM, BOM_SUAVE=BOM_SUAVE, RUIM_SUAVE=RUIM_SUAVE,
     AVISO_TXT=AVISO_TXT, AVISO_SUAVE=AVISO_SUAVE, NAVY_900=NAVY_900,
+    LAVANDA_200=LAVANDA_200, TEXTO_ESCURO_2="#A9B7C6",
+    # sobre o navy do tema escuro o cartão de destaque vira indigo, para continuar saltando
+    KPI_DESTAQUE=INDIGO_800 if TEMA_ESCURO else NAVY_900,
     DIV_BAIXO=ESCALA_DIV[0][1], DIV_MEIO=ESCALA_DIV[1][1], DIV_ALTO=ESCALA_DIV[2][1],
     FONTE=FONTE, FONTE_MONO=FONTE_MONO, LOGO=LOGO_B64,
     ESQUEMA="dark" if TEMA_ESCURO else "light",
@@ -437,7 +452,7 @@ def sparkline(valores, chave, cor=ACENTO):
     gid = f"spark_{chave}"
     return (f'<svg class="spark" viewBox="0 0 {w} {h}" preserveAspectRatio="none">'
             f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
-            f'<stop offset="0" stop-color="{cor}" stop-opacity="0.45"></stop>'
+            f'<stop offset="0" stop-color="{cor}" stop-opacity="0.55"></stop>'
             f'<stop offset="1" stop-color="{cor}" stop-opacity="0"></stop></linearGradient></defs>'
             f'<path d="{area}" fill="url(#{gid})"></path>'
             f'<polyline points="{pontos}" fill="none" stroke="{cor}" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>'
@@ -525,7 +540,7 @@ def eixo_fmt(tipo):
 # ======================================================================
 def estilo(fig, altura=H_M, horizontal=False, legenda=False):
     fig.update_layout(
-        height=altura, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=altura, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor=FUNDO_PLOT,
         font=dict(family=FONTE, size=12, color=TEXTO_2),
         margin=dict(l=4, r=24, t=34 if legenda else 10, b=6),
         showlegend=legenda,
@@ -830,19 +845,22 @@ def delta(chave):
     return f'<span class="delta {classe}" title="vs período anterior">{seta} {txt}</span>'
 
 
-def kpi(col, rotulo, valor, sub, chave, definicao, icone):
+def kpi(col, rotulo, valor, sub, chave, definicao, icone, destaque=False):
+    """Um KPI por cartão. O destaque usa a superfície navy do design system, a única escura."""
     col.markdown(
-        f'<div class="kpi" title="{esc(definicao)}"><div class="kpi-topo"><div class="kpi-rotulo">{esc(rotulo)}</div>'
+        f'<div class="kpi{" escuro" if destaque else ""}" title="{esc(definicao)}">'
+        f'<div class="kpi-topo"><div class="kpi-rotulo">{esc(rotulo)}</div>'
         f'<div class="icone">{ICONES[icone]}</div></div><div class="kpi-valor">{valor}</div>'
         f'<div class="kpi-linha">{delta(chave)}<span>{sub}</span></div>'
-        f'{sparkline(SERIE_KPI[chave].values, chave)}</div>', unsafe_allow_html=True)
+        f'{sparkline(SERIE_KPI[chave].values, chave, cor=LAVANDA_300 if destaque else ACENTO)}</div>',
+        unsafe_allow_html=True)
 
 
 k = st.columns(6, gap="small")
 kpi(k[0], "Receita líquida", brl_c(K.receita), f"{brl_c(K.receita_bruta)} bruta", "receita",
     "Receita bruta menos descontos", "receita")
 kpi(k[1], "Margem de contribuição", pct(K.margem_pct, 2), f"{brl_c(K.margem)}", "margem_pct",
-    "Receita líquida menos CMV e frete, sobre a receita líquida", "margem")
+    "Receita líquida menos CMV e frete, sobre a receita líquida", "margem", destaque=True)
 kpi(k[2], "Margem realizada", pct(K.margem_real_pct, 2), "após devoluções", "margem_real_pct",
     "Pedido devolvido perde a receita e mantém CMV e frete (premissa do tratamento)", "realizada")
 kpi(k[3], "Pedidos", inteiro(K.pedidos), f"{inteiro(K.itens)} itens", "pedidos", "Pedidos aprovados", "pedidos")
@@ -1195,7 +1213,7 @@ with abas[0]:
                 text=[brl_c(K.receita_bruta), brl_c(-K.desconto), brl_c(-K.cmv), brl_c(-K.frete), brl_c(K.margem)],
                 textposition="outside", textfont=dict(size=11, color=TEXTO_2),
                 connector=dict(line=dict(color=BORDA_FORTE, width=1)),
-                decreasing=dict(marker=dict(color=RUIM)), increasing=dict(marker=dict(color=BOM)),
+                decreasing=dict(marker=dict(color=SINAL)), increasing=dict(marker=dict(color=BOM)),
                 totals=dict(marker=dict(color=ACENTO)), hovertemplate="%{x}: %{text}<extra></extra>"))
             fig.update_yaxes(range=[0, K.receita_bruta * 1.15], tickprefix="R$ ", tickformat="~s")
             plot(estilo(fig, H_M))
