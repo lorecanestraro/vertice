@@ -38,15 +38,12 @@ class ErroElo(Exception):
         self.bruto = bruto
 
 
-# ----------------------------------------------------------------------
-# Configuração e cliente
-# ----------------------------------------------------------------------
 def _config(nome, padrao=None):
     try:
         import streamlit as st
         if nome in st.secrets:
             return str(st.secrets[nome])
-    except Exception:  # sem Streamlit ou sem arquivo de segredos
+    except Exception:
         pass
     return os.getenv(nome, padrao)
 
@@ -81,7 +78,6 @@ def cliente():
 
 def _traduzir(erro):
     import openai
-    # APITimeoutError é subclasse de APIConnectionError: precisa vir antes dela.
     mapa = [
         ((openai.AuthenticationError, openai.PermissionDeniedError), "chave",
          "O Elo Agents recusou a chave. Confira ELOAGENTS_API_KEY."),
@@ -106,9 +102,6 @@ def listar_modelos():
         raise _traduzir(e) from e
 
 
-# ----------------------------------------------------------------------
-# Prompt
-# ----------------------------------------------------------------------
 SISTEMA = """Você é analista sênior de rentabilidade de varejo e apoia a diretoria comercial da Vértice Retail.
 Você recebe um JSON com indicadores já calculados sobre o recorte de dados que o usuário filtrou no painel.
 
@@ -175,15 +168,9 @@ Gere de 3 a 5 insights, do mais para o menos relevante."""
 
 def _mensagem_usuario(instrucoes, pedido, contexto):
     dados = json.dumps(contexto, ensure_ascii=False, separators=(",", ":"))
-    # As instruções vão na mensagem do usuário, e não num papel "system": o gateway do Elo Agents
-    # injeta um prompt de sistema próprio com ferramentas (skills), e um "system" adicional fazia o
-    # modelo responder com tool_calls e conteúdo vazio.
     return f"{instrucoes}\n\n{pedido}\n\nDados do recorte (JSON):\n{dados}"
 
 
-# ----------------------------------------------------------------------
-# Leitura da resposta
-# ----------------------------------------------------------------------
 def extrair_json(texto):
     """Aceita JSON puro ou envolto em bloco de código, com ou sem texto em volta."""
     t = (texto or "").strip()
@@ -225,9 +212,6 @@ def _normalizar(dados, bruto):
     return saida
 
 
-# ----------------------------------------------------------------------
-# Conferência de números: todo número citado precisa existir nos dados enviados
-# ----------------------------------------------------------------------
 _NUMERO = re.compile(
     r"(?<![\w/,.])(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?)(?![\w/]|[.,]\d)"
     r"(\s*(?:mil\b|mi\b|milhões|milhão|bi\b))?",
@@ -243,7 +227,7 @@ def _numeros_no_texto(texto, todos=False):
         valor = float(bruto.replace(".", "").replace(",", "."))
         escala = _ESCALA.get(sufixo, 1.0)
         if not todos and escala == 1.0 and casas == 0 and (valor <= 31 or 2000 <= valor <= 2100):
-            continue  # dias, contagens pequenas, limiares e anos
+            continue
         achados.append((m.group(0).strip(), valor * escala, 0.5 * 10 ** (-casas) * escala))
     return achados
 
@@ -277,11 +261,7 @@ def numeros_nao_conferidos(texto, referencias):
     return list(dict.fromkeys(faltam))
 
 
-# ----------------------------------------------------------------------
-# Chamada principal
-# ----------------------------------------------------------------------
 def _completar(modelo, conteudo):
-    # Sem max_tokens: o gateway descarta o parâmetro (dropped_compat_plugin_params).
     try:
         resposta = cliente().chat.completions.create(model=modelo, temperature=0,
                                                      messages=[{"role": "user", "content": conteudo}])
@@ -321,7 +301,6 @@ def _gerar(instrucoes, pedido, contexto, modelo):
     inicio = time.time()
     resposta, texto = _completar(modelo, conteudo)
     if not texto.strip():
-        # O modelo pode tentar acionar uma ferramenta do gateway em vez de responder: insiste uma vez.
         resposta, texto = _completar(
             modelo, conteudo + "\n\nNão use ferramentas nem skills. Responda diretamente com o JSON pedido.")
     if not texto.strip():
@@ -335,8 +314,6 @@ def _gerar(instrucoes, pedido, contexto, modelo):
 
     referencias = numeros_do_contexto(contexto)
     for item in insights:
-        # Regra do prompt reforçada no código: receita e margem nunca são valor em jogo (o modelo às
-        # vezes usava a receita de SKUs em ruptura como se fosse perda).
         if item["valor"] is not None and re.search(r"receita|margem", item["base_valor"], re.IGNORECASE):
             item["valor"], item["base_valor"] = None, ""
         item["nao_conferidos"] = numeros_nao_conferidos(" ".join([item["titulo"], item["texto"], item["acao"]]),
@@ -361,6 +338,6 @@ if __name__ == "__main__":
     except ErroElo as e:
         print(f"Falha ({e.tipo}): {e.mensagem}")
         sys.exit(1)
-    except Exception as e:  # erro fora do mapa acima
+    except Exception as e:
         print(f"Falha: {_traduzir(e).mensagem}")
         sys.exit(1)

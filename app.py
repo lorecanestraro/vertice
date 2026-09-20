@@ -24,19 +24,7 @@ from plotly.subplots import make_subplots
 
 import elo_agents
 
-# ======================================================================
-# IDENTIDADE VISUAL — Vértice Retail Design System
-# ----------------------------------------------------------------------
-# Tokens de "Vértice Retail Design System" (tokens/colors.css, typography.css,
-# shape.css): indigo de marca sobre off-white, lavanda como único apoio, cobre
-# como acento de sinal e navy como única superfície escura. A estrutura vem de
-# hairlines de 1px: sem gradiente de fundo, sem sombra estática, labels em mono
-# maiúsculo e números grandes na face de display.
-# Séries de dados: rampa indigo de passo fixo por entidade (a cor segue a
-# entidade, nunca o ranking), validada com validate_palette.js --ordinal contra
-# o cartão branco e contra o navy.
-# ======================================================================
-TEMA_ESCURO = st.query_params.get("tema") == "escuro"  # o design system é claro por padrão
+TEMA_ESCURO = st.query_params.get("tema") == "escuro"
 
 INDIGO_900, INDIGO_800, INDIGO_700, INDIGO_600 = "#0C0C74", "#12129E", "#1A1AC8", "#2E2CD6"
 LAVANDA_400, LAVANDA_300, LAVANDA_200 = "#8E8BE6", "#A5A2E8", "#C9C7F5"
@@ -48,23 +36,23 @@ FONTE = "'Schibsted Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif"
 FONTE_MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
 
 if TEMA_ESCURO:
-    PAGINA = NAVY_900        # fundo da página
-    BARRA = NAVY_800         # barra de filtros
-    SUPERFICIE = NAVY_800    # cartões (superfície dos gráficos)
-    ELEVADO = NAVY_700       # campos, blocos internos
-    DESTAQUE = "#24466B"     # aba ativa, trilhas, cabeçalho de tabela
+    PAGINA = NAVY_900
+    BARRA = NAVY_800
+    SUPERFICIE = NAVY_800
+    ELEVADO = NAVY_700
+    DESTAQUE = "#24466B"
     BORDA, BORDA_FORTE, GRADE = "#27425F", "#3F6288", "#1E3A57"
     TEXTO, TEXTO_2, TEXTO_3, TEXTO_4 = "#FFFFFF", "#D5DEE7", "#A9B7C6", "#8DA0B4"
-    ACENTO, ACENTO_FORTE = "#6B69E8", "#8886E9"          # indigo de marca sobre navy
+    ACENTO, ACENTO_FORTE = "#6B69E8", "#8886E9"
     ACENTO_TXT, ACENTO_SUAVE = LAVANDA_300, "#1C3350"
     SINAL, SINAL_TXT, SINAL_SUAVE = COBRE_500, COBRE_300, "#3A2A22"
     BOM, RUIM, AVISO_TXT = "#35B58A", "#F2796F", "#E0A93F"
     BOM_SUAVE, RUIM_SUAVE, AVISO_SUAVE = "#13382F", "#3B2323", "#3A3122"
 else:
-    PAGINA = "#F1F0FB"       # off-white puxado para a lavanda da marca
-    BARRA = LAVANDA_100      # faixa de filtros em lavanda
-    SUPERFICIE = "#FFFFFF"   # cartão branco, que ganha destaque sobre a página tingida
-    ELEVADO = LAVANDA_050    # blocos internos
+    PAGINA = "#F1F0FB"
+    BARRA = LAVANDA_100
+    SUPERFICIE = "#FFFFFF"
+    ELEVADO = LAVANDA_050
     DESTAQUE = LAVANDA_100
     BORDA, BORDA_FORTE, GRADE = "#E1DFF2", "#C3BFE0", "#EBE9F8"
     TEXTO, TEXTO_2, TEXTO_3, TEXTO_4 = "#17171B", "#3A3A42", "#6B6B78", "#9A9AA6"
@@ -74,15 +62,13 @@ else:
     BOM, RUIM, AVISO_TXT = "#12805C", "#B3261E", "#A8700F"
     BOM_SUAVE, RUIM_SUAVE, AVISO_SUAVE = "#E3F2EC", "#FBE9E7", "#FBF1DF"
 
-# Rampa de série: um passo fixo por entidade. Validada (--ordinal) contra o
-# cartão branco no tema claro e contra o navy no tema escuro.
 if TEMA_ESCURO:
     SERIE = ["#F2F1FE", "#DAD9F9", "#C0BEF3", "#A5A3EB", "#8886E9", "#6B69E8", "#4F4DE4"]
-    COR_BASE = "#7B78E6"     # série única
+    COR_BASE = "#7B78E6"
 else:
     SERIE = ["#0C0C74", "#18189F", "#2E2CD6", "#4F4DE4", "#6E6BEA", "#8E8BE6", "#ADABEC"]
-    COR_BASE = "#5E5BE8"     # indigo mais vivo que o da marca, validado contra o cobre
-COR_FOCO = SINAL             # cobre: a entidade que o texto comenta
+    COR_BASE = "#5E5BE8"
+COR_FOCO = SINAL
 COR_NEUTRA = BORDA_FORTE
 
 CANAIS = ["Google Ads", "Marketplace", "TikTok Ads", "Email Marketing", "Influenciador",
@@ -92,18 +78,16 @@ COR_CATEGORIA = dict(zip(["Moda", "Beleza", "Lifestyle", "Acessórios"], SERIE[0
 COR_PAGAMENTO = dict(zip(["Cartão de Crédito", "PIX", "Boleto", "Vale-Troca"], SERIE[0::2]))
 CORES_DIM = {"canal": COR_CANAL, "categoria": COR_CATEGORIA, "metodo_pagamento": COR_PAGAMENTO}
 
-# Sequencial: um hue, claro para escuro no tema claro e o inverso sobre navy.
-# Divergente: cobre e indigo com cinza neutro no meio.
 if TEMA_ESCURO:
     ESCALA_SEQ = [[0, "#24405F"], [0.35, "#4F4DE4"], [0.7, "#8886E9"], [1, "#DAD9F9"]]
     ESCALA_DIV = [[0, COBRE_500], [0.5, "#33506E"], [1, "#8886E9"]]
 else:
     ESCALA_SEQ = [[0, LAVANDA_100], [0.35, "#ADABEC"], [0.7, "#4F4DE4"], [1, INDIGO_800]]
     ESCALA_DIV = [[0, COBRE_600], [0.5, "#EDEDE9"], [1, INDIGO_600]]
-TEXTO_CELULA = "#17171B"     # rótulo escuro sobre célula clara
-FUNDO_PLOT = "rgba(0,0,0,0)" if TEMA_ESCURO else "rgba(232,231,252,.35)"  # véu lavanda na área do gráfico
+TEXTO_CELULA = "#17171B"
+FUNDO_PLOT = "rgba(0,0,0,0)" if TEMA_ESCURO else "rgba(232,231,252,.35)"
 
-H_P, H_M, H_G = 280, 330, 380  # alturas padrão dos gráficos
+H_P, H_M, H_G = 280, 330, 380
 
 st.set_page_config(page_title="Vértice Retail | Rentabilidade", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -124,15 +108,9 @@ CSS = Template("""
 html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, textarea {
    font-family: $FONTE !important; }
 [data-testid="stMarkdownContainer"] p { color: $TEXTO_2; }
-/* O Streamlit aplica margin-bottom:-16px ao bloco de markdown para compensar a margem de um
-   parágrafo. Aqui todo markdown é HTML próprio em div, sem essa margem: sem o reset, subtítulos,
-   notas e caixas de insight ficam 16px sobrepostos ao elemento seguinte.
-   ATENÇÃO: não usar sinais de menor/maior neste bloco; o sanitizador do st.html os lê como tags
-   e descarta o estilo inteiro. */
 [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
 [data-testid="stVerticalBlock"] { gap: 0.9rem; }
 
-/* cabeçalho: logo do bootcamp em bloco navy, wordmark na face de display */
 .topo { display:flex; justify-content:space-between; align-items:center; gap:24px;
    padding-bottom:14px; border-bottom:1px solid $BORDA; }
 .marca { display:flex; align-items:center; gap:16px; }
@@ -149,7 +127,6 @@ html, body, [class*="css"], [data-testid="stMarkdownContainer"], button, input, 
    border:1px solid $LINHA_ACENTO; border-radius:999px; padding:6px 12px; }
 .ponto { width:6px; height:6px; border-radius:50%; background:$ACENTO; }
 
-/* cartões */
 div[class*="st-key-card_"] { background:$SUPERFICIE; border:1px solid $BORDA; border-radius:10px;
    padding:24px; gap:.7rem; }
 [data-testid="stColumn"] div[class*="st-key-card_"] { height:100%; }
@@ -159,7 +136,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .card-titulo::before { content:""; flex:0 0 3px; width:3px; height:15px; border-radius:2px; background:$ACENTO; }
 .card-sub { font-size:13px; color:$TEXTO_3; margin-top:6px; line-height:1.5; max-width:86ch; }
 
-/* big numbers */
 .kpi { display:flex; flex-direction:column; background:$SUPERFICIE; border:1px solid $BORDA;
    border-radius:10px; padding:20px; min-height:156px; overflow:hidden; }
 .kpi-topo { display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -184,7 +160,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .kpi.escuro .kpi-linha { color:$TEXTO_ESCURO_2; }
 .kpi.escuro .icone { background:#FFFFFF1A; color:$LAVANDA_200; }
 
-/* insight do Elo Agents */
 .insight { background:$ACENTO_SUAVE; border:1px solid $LINHA_ACENTO; border-radius:10px; padding:14px 16px; }
 .insight .rot { display:flex; align-items:center; gap:7px; font-family:$FONTE_MONO; font-size:10px;
    font-weight:500; color:$ACENTO_TXT; letter-spacing:0.16em; text-transform:uppercase; }
@@ -193,7 +168,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .insight .acao { font-size:13px; color:$TEXTO_2; margin-top:8px; line-height:1.5; }
 .insight .acao b { color:$ACENTO_TXT; font-weight:600; }
 
-/* recomendações */
 .recs { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; }
 @media (max-width: 1100px) { .recs { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .recs { grid-template-columns:1fr; } }
@@ -216,7 +190,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
    margin-top:auto; }
 .rec-acao b { color:$ACENTO_TXT; font-weight:600; }
 
-/* peças auxiliares */
 .nota { font-size:12px; color:$TEXTO_4 !important; line-height:1.5; }
 .chip { display:inline-flex; align-items:center; gap:6px; font-family:$FONTE_MONO; font-size:10px;
    letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_2; background:$DESTAQUE;
@@ -232,7 +205,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .barra-div { flex:1; height:6px; border-radius:999px;
    background:linear-gradient(90deg, $DIV_BAIXO, $DIV_MEIO, $DIV_ALTO); }
 
-/* insights do Elo Agents: avisos e selos */
 .aviso { background:$AVISO_SUAVE; border:1px solid $AVISO_TXT; border-radius:10px; padding:14px 16px; }
 .aviso b { color:$AVISO_TXT; font-size:13px; font-weight:600; }
 .aviso div { font-size:13px; color:$TEXTO_2; margin-top:4px; line-height:1.5; }
@@ -245,7 +217,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .selo.ok { color:$BOM; background:$BOM_SUAVE; }
 .selo.alerta { color:$AVISO_TXT; background:$AVISO_SUAVE; }
 
-/* navegação: nesta versão do Streamlit as abas usam react-aria (role tablist e data-testid stTab) */
 [data-testid="stTabs"] { margin-top:8px; }
 [data-testid="stTabs"] [role="tablist"] { display:flex !important; gap:2px; width:100% !important;
    background:transparent !important; border:none !important; border-bottom:1px solid $BORDA !important;
@@ -262,7 +233,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 [data-testid="stTab"][aria-selected="true"]:hover { background:$ACENTO_FORTE !important; }
 [data-testid="stTabs"] [role="tabpanel"] { padding-top:18px; }
 
-/* controles */
 [data-testid="stWidgetLabel"] p { font-family:$FONTE_MONO !important; color:$TEXTO_3 !important;
    font-size:10px !important; letter-spacing:0.1em !important; text-transform:uppercase !important; }
 [data-baseweb="select"] > div, [data-baseweb="input"] > div, [data-baseweb="base-input"] {
@@ -290,7 +260,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .stDownloadButton button, .stButton button { background:$SUPERFICIE !important; border:1px solid $BORDA_FORTE !important;
    color:$TEXTO !important; border-radius:999px !important; font-weight:500 !important; }
 .stDownloadButton button:hover, .stButton button:hover { border-color:$TEXTO !important; color:$TEXTO !important; }
-/* o rótulo do botão é um parágrafo de markdown: sem isto herda a cor cinza dos parágrafos */
 .stDownloadButton button p, .stButton button p { color:inherit !important; }
 .stButton button[data-testid="stBaseButton-primary"] { background:$ACENTO !important; border:1px solid $ACENTO !important;
    color:#FFFFFF !important; font-weight:500 !important; }
@@ -306,7 +275,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
     BOM=BOM, RUIM=RUIM, BOM_SUAVE=BOM_SUAVE, RUIM_SUAVE=RUIM_SUAVE,
     AVISO_TXT=AVISO_TXT, AVISO_SUAVE=AVISO_SUAVE, NAVY_900=NAVY_900,
     LAVANDA_200=LAVANDA_200, TEXTO_ESCURO_2="#A9B7C6",
-    # sobre o navy do tema escuro o cartão de destaque vira indigo, para continuar saltando
     KPI_DESTAQUE=INDIGO_800 if TEMA_ESCURO else NAVY_900,
     DIV_BAIXO=ESCALA_DIV[0][1], DIV_MEIO=ESCALA_DIV[1][1], DIV_ALTO=ESCALA_DIV[2][1],
     FONTE=FONTE, FONTE_MONO=FONTE_MONO, LOGO=LOGO_B64,
@@ -315,9 +283,6 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 st.html(CSS)
 
 
-# Botão de tema. Tabelas, menus e demais componentes nativos só trocam de tema ao carregar a
-# página, pela opção embed_options da URL; a paleta do CSS e dos gráficos segue o parâmetro
-# "tema". Por isso o botão navega para a nova URL (os filtros voltam ao padrão).
 ICONE_SOL = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
              '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4'
              'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>')
@@ -325,8 +290,6 @@ ICONE_LUA = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
              'stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>')
 
 
-# Registrado a cada execução, sem cache: o registro de componentes pertence ao runtime, e um objeto
-# guardado em cache_resource sobrevive a um runtime novo sem estar registrado nele.
 def componente_tema():
     return st.components.v2.component(
         "botao_tema",
@@ -359,9 +322,6 @@ export default function (component) {
     }
     window.location.assign(url.toString());
   };
-  // Sem ?tema=escuro o painel é claro, como manda o design system. Com [theme.light] e
-  // [theme.dark] no config, o Streamlit seguiria o tema do sistema operacional na primeira
-  // visita: grava a escolha clara e recarrega uma vez.
   if (data.destino === "escuro") {
     const chave = `stActiveTheme-${window.location.pathname}-v2`;
     const salvo = window.localStorage.getItem(chave);
@@ -375,9 +335,6 @@ export default function (component) {
 """)
 
 
-# ======================================================================
-# FORMATAÇÃO E ÍCONES
-# ======================================================================
 MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 MES_EXTENSO = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto",
                "setembro", "outubro", "novembro", "dezembro"]
@@ -461,9 +418,6 @@ def sparkline(valores, chave, cor=ACENTO):
             f'<circle cx="{xs[-1]:.1f}" cy="{ys[-1]:.1f}" r="3" fill="{SINAL}"></circle></svg>')
 
 
-# ======================================================================
-# MÉTRICAS
-# ======================================================================
 SOMAS = dict(
     receita=("receita_liquida", "sum"), receita_bruta=("receita_bruta", "sum"),
     margem=("margem_contribuicao", "sum"), cmv=("custo_produto", "sum"),
@@ -537,9 +491,6 @@ def eixo_fmt(tipo):
     return dict(tickformat=".1f")
 
 
-# ======================================================================
-# GRÁFICOS: padrão único
-# ======================================================================
 def estilo(fig, altura=H_M, horizontal=False, legenda=False):
     fig.update_layout(
         height=altura, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor=FUNDO_PLOT,
@@ -565,8 +516,6 @@ def estilo(fig, altura=H_M, horizontal=False, legenda=False):
     return fig
 
 
-# Sem a barra de ícones do Plotly: ela cobria rótulos das barras do topo. Tela cheia continua
-# disponível pelo menu do próprio Streamlit ao passar o mouse no gráfico.
 CONFIG_PLOTLY = {"displaylogo": False, "displayModeBar": False}
 
 
@@ -638,9 +587,6 @@ def colunas(x, y, tipo, foco=None, altura=H_P, rotulos=True, hover_extra=None):
     return estilo(fig, altura)
 
 
-# ======================================================================
-# DADOS
-# ======================================================================
 def rotular_celulas(fig, z, xs, ys, formato):
     """Rótulo por célula de heatmap com a cor escolhida pelo fundo: tinta escura nas células
     claras, branca nas escuras (o Plotly usa uma cor só e some nas células claras)."""
@@ -652,7 +598,6 @@ def rotular_celulas(fig, z, xs, ys, formato):
             if np.isnan(v):
                 continue
             pos = (v - lo) / ((hi - lo) or 1)
-            # no tema claro o valor alto é indigo escuro; no navy, lavanda clara
             clara = pos > 0.6 if TEMA_ESCURO else pos < 0.55
             fig.add_annotation(x=x, y=y, text=formato(v), showarrow=False,
                                font=dict(size=11, color=TEXTO_CELULA if clara else "#FFFFFF"))
@@ -678,7 +623,6 @@ OPERACIONAIS = ["Produto com defeito", "Atraso na entrega"]
 
 @st.cache_data
 def carregar():
-    # O CSV perde o tipo Categorical: sem isto as faixas voltam em ordem alfabética.
     d = pd.read_csv("vendas_tratada.csv", parse_dates=["data_pedido"])
     d["dia"] = d["data_pedido"].dt.normalize()
     d["faixa_ticket"] = pd.Categorical(d["faixa_ticket"].map(ROTULO_TICKET),
@@ -693,14 +637,11 @@ def carregar():
 
 BASE = carregar()
 DATA_MIN, DATA_MAX = BASE["dia"].min(), BASE["dia"].max()
-# Colunas do cadastro de estoque só existem se o tratamento rodou com PROCESSAR_OUTRAS_BASES.
 TEM_ESTOQUE = "subcategoria" in BASE.columns
 
 
 @st.cache_data
 def carregar_atendimento():
-    # Chamados do SAC. Só por data, canal de entrada e motivo: o vínculo com o pedido não é confiável
-    # (a maioria dos order_id não existe em vendas e parte dos chamados abre antes do pedido).
     try:
         a = pd.read_csv("atendimento_tratado.csv", parse_dates=["data_abertura"], usecols=[
             "ticket_id", "order_id", "data_abertura", "canal_entrada", "categoria_problema",
@@ -742,9 +683,6 @@ def tabelas_atendimento(a):
     return pc, pm
 
 
-# ======================================================================
-# CABEÇALHO E FILTROS
-# ======================================================================
 cab = st.columns([10, 1.25], gap="small", vertical_alignment="center")
 cab[0].markdown(
     '<div class="topo"><div class="marca">'
@@ -782,15 +720,12 @@ with card("filtros"):
             "Últimos 90 dias": (DATA_MAX - pd.Timedelta(days=89), DATA_MAX),
             "Ano de 2023": (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-12-31")),
         }[preset]
-        # sem key: com uma key fixa o Streamlit mantém o valor da primeira execução e o campo
-        # continuaria mostrando o período inteiro depois de trocar o preset
         f[1].text_input("Datas", value=f"{ini:%d/%m/%Y} a {fim:%d/%m/%Y}", disabled=True)
     canais_sel = f[2].multiselect("Canal", list(COR_CANAL), placeholder="Todos", key="f_canal")
     cats_sel = f[3].multiselect("Categoria", list(COR_CATEGORIA), placeholder="Todas", key="f_cat")
     pgto_sel = f[4].multiselect("Pagamento", list(COR_PAGAMENTO), placeholder="Todos", key="f_pgto")
     incluir_dev = f[5].toggle("Incluir devolvidos", value=True, key="f_dev")
 
-# Seleção feita no gráfico "Margem por canal" (filtro cruzado, como no Power BI).
 drill_canal = None
 _pts = pontos_selecionados(st.session_state.get(CHAVE_DRILL))
 if _pts:
@@ -816,13 +751,11 @@ def recortar(d, de, ate, com_drill=True):
 df = recortar(BASE, ini, fim)
 df_sem_drill = recortar(BASE, ini, fim, com_drill=False)
 
-# Período anterior de mesma duração, só quando cabe inteiro dentro da base.
 dur = fim - ini + pd.Timedelta(days=1)
 p_ini, p_fim = ini - dur, ini - pd.Timedelta(days=1)
 comparavel = preset in ("Últimos 30 dias", "Últimos 90 dias", "Personalizado") and p_ini >= DATA_MIN
 df_ant = recortar(BASE, p_ini, p_fim) if comparavel else None
 dias = (fim - ini).days + 1
-# Atendimento recortado só pelo período: os demais filtros não se aplicam a chamados.
 atd = ATD[(ATD["dia"] >= ini) & (ATD["dia"] <= fim)] if ATD is not None else pd.DataFrame()
 PED_PERIODO = int(((BASE["dia"] >= ini) & (BASE["dia"] <= fim)).sum())
 
@@ -842,9 +775,6 @@ KA = agregar(df_ant).iloc[0] if df_ant is not None and len(df_ant) else None
 SERIE_KPI = agregar(df.assign(_p=df["dia"].dt.to_period("W" if dias <= 120 else "M").dt.start_time), "_p")
 
 
-# ======================================================================
-# BIG NUMBERS
-# ======================================================================
 def delta(chave):
     if KA is None:
         return ""
@@ -911,13 +841,6 @@ depois do pedido (R$ 0,77 mi e R$ 0,38 mi): a base tratada guarda apenas os pedi
 """)
 
 
-# ======================================================================
-# CONTEXTO ENVIADO AO ELO AGENTS
-# ----------------------------------------------------------------------
-# Só indicadores já calculados sobre o recorte filtrado, com as diferenças
-# prontas: o modelo é instruído a não fazer contas, e cada número que ele
-# citar é conferido contra este mesmo dicionário.
-# ======================================================================
 def _r(v, casas=2):
     return None if v is None or pd.isna(v) else round(float(v), casas)
 
@@ -1093,7 +1016,6 @@ def montar_contexto():
         if len(risco):
             tr = risco.groupby(["sku_id", "produto", "situacao_estoque_atual"]).agg(
                 pedidos=("order_id", "count"), receita=("receita_liquida", "sum")).nlargest(10, "receita")
-            # Nome longo de propósito: "mais venderam hoje" fazia o modelo tratar vendas de 2023 como recentes.
             ctx["skus_de_maior_receita_no_recorte_com_estoque_atual_em_ruptura_ou_critico"] = {
                 "observacao": (f"pedidos e receita de {ini:%d/%m/%Y} a {fim:%d/%m/%Y}, não são vendas recentes; "
                                "situação do estoque na data de extração"),
@@ -1125,9 +1047,6 @@ def montar_contexto():
     return ctx
 
 
-# ======================================================================
-# CARTÕES DE INSIGHT DO ELO AGENTS
-# ======================================================================
 def _rec_html(i, tema, titulo, texto, acao, topo_direita, valor_html="", rodape=""):
     return (f'<div class="rec"><div class="rec-topo"><span class="rank">{i:02d}</span>'
             f'<span class="tema">{esc(tema)}</span>'
@@ -1173,7 +1092,6 @@ def render_insights_ia(ia, desatualizado):
     maior = max(valores) if valores else 0
     st.markdown('<div class="recs">' + "".join(
         _rec_html(i, x["tema"], x["titulo"], x["texto"], x["acao"], f'Prioridade {esc(x["prioridade"])}',
-                  # valor em jogo que não existe nos dados enviados não ganha destaque; o selo continua avisando
                   _valor_html(None if "valor em jogo" in x["nao_conferidos"] else x["valor"], "valor em jogo", maior,
                               fonte=f'Fonte: {x["base_valor"]}'),
                   _selo_conferencia(x["nao_conferidos"]))
@@ -1190,9 +1108,6 @@ def render_insights_ia(ia, desatualizado):
 abas = st.tabs(["Visão geral", "Explorar", "Canais", "Desconto", "Frete e entrega", "Devoluções",
                 "Atendimento", "Alertas", "Simulador"])
 
-# ======================================================================
-# VISÃO GERAL
-# ======================================================================
 with abas[0]:
     with card("evolucao"):
         cabecalho("Evolução no período", "Escolha a métrica e a granularidade")
@@ -1347,9 +1262,6 @@ with abas[0]:
                 nota("Clique em Gerar insights para o Elo Agents analisar o recorte atual. Os indicadores enviados "
                      "ficam visíveis depois da análise, em 'Dados enviados ao Elo Agents'.")
 
-# ======================================================================
-# EXPLORAR (self-service)
-# ======================================================================
 DIMENSOES = {"Canal": "canal", "Categoria": "categoria",
              **({"Subcategoria": "subcategoria"} if TEM_ESTOQUE else {}),
              "Método de pagamento": "metodo_pagamento",
@@ -1357,7 +1269,7 @@ DIMENSOES = {"Canal": "canal", "Categoria": "categoria",
              "Prazo de entrega": "faixa_prazo", "Mês": "mes_rotulo", "Motivo de devolução": "motivo_devolucao",
              "Produto": "produto",
              **({"Situação atual do estoque": "situacao_estoque_atual"} if TEM_ESTOQUE else {})}
-LIMITADAS = {"produto", "subcategoria"}  # muitas linhas: exibem só os 15 maiores ou menores
+LIMITADAS = {"produto", "subcategoria"}
 ORDENADAS = {"faixa_ticket", "faixa_desconto", "faixa_prazo", "mes_rotulo"}
 QUEBRAS = {"Canal": "canal", "Categoria": "categoria", "Método de pagamento": "metodo_pagamento"}
 COLS_PEDIDO = {"order_id": "Pedido", "data_pedido": "Data", "canal": "Canal", "categoria": "Categoria",
@@ -1465,7 +1377,6 @@ with abas[1]:
             cabecalho(f"Tabela por {dim_nome.lower()}", "Todas as métricas para os itens exibidos no gráfico")
             vis = t.copy()
             vis.index = vis.index.astype(str)
-            # a métrica escolhida vem logo depois da dimensão, mesmo quando não está entre as colunas padrão
             colunas_padrao = ["pedidos", "receita", "margem", "margem_pct", "margem_real_pct", "ticket",
                               "desconto_pct", "desconto", "frete_pct", "frete", "taxa_dev", "prazo"]
             vis = vis[[met] + [c for c in colunas_padrao if c != met]].rename(
@@ -1507,8 +1418,6 @@ with abas[1]:
             observacoes.append(DEFINICOES["situacao_atual_do_estoque"])
         if dim == "motivo_devolucao":
             observacoes.append("considera apenas pedidos devolvidos")
-        # Só as definições que a métrica escolhida precisa: a definição longa de frete, enviada
-        # sempre, puxava os insights de qualquer tabela para frete.
         chaves_definicao = ["margem_contribuicao", "margem_realizada", "valores_em_rs"]
         if met in ("frete", "frete_pct"):
             chaves_definicao += ["frete_rs", "frete_gratis"]
@@ -1518,8 +1427,6 @@ with abas[1]:
         registros = linhas.to_dict(orient="records")
         ranking = sorted(((str(r_[dim_nome]), r_[coluna_foco]) for r_ in registros if r_[coluna_foco] is not None),
                          key=lambda par: -par[1])
-        # Comparações já calculadas, para o modelo citar em vez de fazer contas (e para a conferência).
-        # O total vem da mesma base da tabela: em "Motivo de devolução", só os pedidos devolvidos.
         total_foco = _r(agregar(base_exp).iloc[0][met])
         chave_dif = "diferenca_vs_total_pp" if info["tipo"] == "pct" else "diferenca_vs_total"
         ranking_ctx = []
@@ -1592,8 +1499,6 @@ with abas[1]:
             if topo[1].button("Gerar insights da tabela", type="primary", width="stretch", key="ia_tab_gerar"):
                 ctx_tab = contexto_tabela()
                 if pergunta_tab.strip():
-                    # Uma pergunta pode puxar frete ou desconto mesmo quando a métrica não é deles: sem as
-                    # definições, o modelo chegou a sugerir "frete grátis" no Marketplace, que não tem.
                     ctx_tab["definicoes"].update({k: DEFINICOES[k] for k in
                                                   ("frete_rs", "frete_gratis", "desconto_pct_receita_bruta")})
                 descricao_tab = (f"tabela por {dim_nome.lower()} · {info['nome']}"
@@ -1623,9 +1528,6 @@ with abas[1]:
                      "muda conforme a dimensão, a métrica, a quebra e a seleção escolhidas. Com uma pergunta, os "
                      "insights respondem a ela usando só esses dados.")
 
-# ======================================================================
-# CANAIS
-# ======================================================================
 with abas[2]:
     tc = agregar(df, "canal")
     c = st.columns([1.35, 1], gap="small")
@@ -1654,8 +1556,6 @@ with abas[2]:
                       "Clique num canal para abrir as categorias.")
             tcc = agregar(df, ["canal", "categoria"])
             media = K.margem_pct
-            # Raiz explícita e valores de cada pai somados dos filhos: com branchvalues="total", um pai
-            # menor que a soma dos filhos (arredondamento) faz o Plotly não desenhar o bloco.
             ids, rotulos, pais, valores, margens, extra = ["Todos"], ["Todos os canais"], [""], [0.0], [np.nan], [None]
             for ch in [x for x in COR_CANAL if x in tc.index]:
                 cats = [x for x in COR_CATEGORIA if (ch, x) in tcc.index]
@@ -1677,15 +1577,12 @@ with abas[2]:
                     extra.append([brl_c(linha["receita"]), pct(linha["margem_pct"])])
             extra[0] = [brl_c(valores[0]), pct(media)]
             desvio = max(float(np.nanmax(np.abs(np.array(margens[1:], dtype=float) - media))), 0.5)
-            # Cores calculadas aqui, não pela escala do Plotly: com escala contínua ele ignora a cor da
-            # raiz e pinta um retângulo cinza atrás de todos os blocos.
             posicoes = [min(max((m - media) / (2 * desvio) + 0.5, 0.0), 1.0) for m in margens[1:]]
             cores = ["rgba(0,0,0,0)"] + sample_colorscale(ESCALA_DIV, posicoes)
             fig = go.Figure(go.Treemap(
                 ids=ids, labels=rotulos, parents=pais, values=valores, branchvalues="total", customdata=extra,
                 marker=dict(colors=cores, line=dict(color=SUPERFICIE, width=2), cornerradius=6),
                 texttemplate="<b>%{label}</b><br>%{customdata[0]}<br>%{customdata[1]}",
-                # no tema claro o centro da escala é claro: rótulo escuro nos blocos próximos da média
                 textfont=dict(size=12, color=[TEXTO] + [cor_rotulo_div(p_) for p_ in posicoes]),
                 hovertemplate="<b>%{label}</b><br>Receita: %{customdata[0]}<br>Margem: %{customdata[1]}<extra></extra>",
                 pathbar=dict(visible=True, textfont=dict(color=TEXTO_2)), tiling=dict(pad=3), maxdepth=3))
@@ -1723,9 +1620,6 @@ with abas[2]:
         st.dataframe(vis.reset_index().rename(columns={"canal": "Canal"}), hide_index=True,
                      column_config={col: st.column_config.NumberColumn(col, format="localized") for col in vis.columns})
 
-# ======================================================================
-# DESCONTO
-# ======================================================================
 with abas[3]:
     fx = agregar(df, "faixa_desconto")
     fx["margem_pedido"] = fx["margem"] / fx["pedidos"]
@@ -1777,9 +1671,6 @@ with abas[3]:
                                         "<br>%{customdata[2]} em desconto<extra></extra>")
         plot(fig)
 
-# ======================================================================
-# FRETE E ENTREGA
-# ======================================================================
 with abas[4]:
     c = st.columns(2, gap="small")
     with c[0]:
@@ -1830,9 +1721,6 @@ with abas[4]:
             cabecalho("Frete pago pelo Marketplace em pedidos a partir de R$ 250")
             nota("Não há pedidos do Marketplace a partir de R$ 250 no recorte atual.")
 
-# ======================================================================
-# DEVOLUÇÕES
-# ======================================================================
 with abas[5]:
     dev = df[df["devolvido"]]
     if dev.empty:
@@ -1847,7 +1735,7 @@ with abas[5]:
                 tmv = dev.groupby("motivo_devolucao").agg(pedidos=("order_id", "count"),
                                                           receita=("receita_liquida", "sum"),
                                                           cmv=("custo_produto", "sum"))
-                tmv["custo"] = tmv["receita"] - tmv["cmv"]   # margem que deixou de se realizar
+                tmv["custo"] = tmv["receita"] - tmv["cmv"]
                 fig = barras_h(tmv, "pedidos", "int", foco=set(OPERACIONAIS), altura=H_P,
                                customdata=[[i, brl_c(tmv.loc[i, "custo"])] for i in tmv.sort_values("pedidos").index])
                 fig.update_traces(hovertemplate="<b>%{y}</b><br>%{x:,.0f} pedidos<br>%{customdata[1]} de margem perdida<extra></extra>")
@@ -1874,9 +1762,6 @@ with abas[5]:
             fig.update_yaxes(tickfont=dict(size=12, color=TEXTO_2), showgrid=False)
             plot(fig)
 
-# ======================================================================
-# ATENDIMENTO
-# ======================================================================
 def tempo_txt(minutos):
     return f"{num(minutos, 0)} min" if minutos < 60 else f"{num(minutos / 60)} h"
 
@@ -1966,17 +1851,12 @@ with abas[6]:
                          column_config={col: st.column_config.NumberColumn(col, format="localized")
                                         for col in cruz.columns})
 
-# ======================================================================
-# ALERTAS
-# ======================================================================
 ALERTAS = {
     "Margem negativa": lambda d: d["margem_negativa"],
     "Desconto acima de 30%": lambda d: d["desconto_pct"] > 30,
     "Marketplace pagando frete a partir de R$ 250": lambda d: d["mk_elegivel_nao_subsidiado"],
     "Devolução por defeito ou atraso": lambda d: d["devolvido"] & d["motivo_devolucao"].isin(OPERACIONAIS),
 }
-# Cada alerta tem dois valores distintos: o tamanho do problema hoje e quanto uma regra do
-# business case traria de volta. Onde a base não sustenta a recuperação, o valor fica em branco.
 def _excedente_teto(sub):
     mantidos = sub[~sub["devolvido"]]
     acima = mantidos["desconto_pct"] > 20
@@ -2039,17 +1919,11 @@ with abas[7]:
         else:
             nota("Selecione ao menos um tipo de alerta.")
 
-# ======================================================================
-# SIMULADOR
-# ======================================================================
 with abas[8]:
     c = st.columns([1, 2], gap="small")
     with c[0]:
         with card("sim_controles"):
             cabecalho("Alavancas", "Os cálculos usam o recorte de filtros atual")
-            # Todas as alavancas abrem em zero: o painel mostra primeiro o cenário atual, e o ganho
-            # só aparece quando o usuário move uma alavanca. Os padrões vêm do session_state para
-            # que o botão do cenário do business case possa reposicionar os sliders.
             for _k, _v in {"sim_frete": 0, "sim_teto": 20, "sim_adesao": 0, "sim_dev": 0}.items():
                 st.session_state.setdefault(_k, _v)
             lev_frete = st.slider("Frete do Marketplace a partir de R$ 250 subsidiado", 0, 100, step=5,
@@ -2076,8 +1950,6 @@ with abas[8]:
                    * base_desc.loc[m_teto, "receita_bruta"]).sum() * adesao / 100)
     pct_afetados = m_teto.mean() * 100 if len(base_desc) else np.nan
     dev_op = df[df["devolvido"] & df["motivo_devolucao"].isin(OPERACIONAIS)]
-    # Devolução evitada: o pedido deixa de perder o frete e passa a contribuir com a margem,
-    # e a receita dele volta ao denominador da margem realizada.
     ganho_dev = (dev_op["receita_liquida"].sum() - dev_op["custo_produto"].sum()) * red_dev / 100
     receita_recuperada = dev_op["receita_liquida"].sum() * red_dev / 100
     mc_nova = (K.margem + ganho_frete + ganho_desc) / K.receita * 100

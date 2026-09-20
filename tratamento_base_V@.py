@@ -37,14 +37,9 @@ import os
 import numpy as np
 import pandas as pd
 
-PROCESSAR_OUTRAS_BASES = True   # ligue se precisar de atendimento/clientes/estoque
+PROCESSAR_OUTRAS_BASES = True
 
 
-# ======================================================================
-# 1. LEITURA
-# ======================================================================
-# Os .xlsx do Data Room são CSV com extensão trocada: cada linha vem como
-# uma única string na primeira coluna. read_excel direto devolve 1 coluna só.
 def ler_base(caminho):
     if not os.path.exists(caminho):
         raise FileNotFoundError(f"'{caminho}' não encontrado neste diretório.")
@@ -64,16 +59,12 @@ vendas = ler_base("vendas.xlsx")
 print(f"Linhas lidas: {len(vendas):,}")
 
 
-# ======================================================================
-# 2. LIMPEZA
-# ======================================================================
 antes = len(vendas)
-vendas = vendas.dropna(subset=["quantidade"]).copy()      # ORD-072219
+vendas = vendas.dropna(subset=["quantidade"]).copy()
 print(f"Linhas removidas por campos nulos: {antes - len(vendas)}")
 
 vendas["data_pedido"] = pd.to_datetime(vendas["data_pedido"])
 
-# devolvido vem como bool nativo; normaliza caso venha string em outra carga
 if vendas["devolvido"].dtype == object:
     vendas["devolvido"] = (vendas["devolvido"]
                            .astype(str).str.strip().str.lower()
@@ -85,17 +76,10 @@ dups = vendas["order_id"].duplicated().sum()
 print(f"order_id duplicados: {dups}")
 
 
-# ======================================================================
-# 3. FILTRO OFICIAL
-# ======================================================================
 df = vendas[vendas["status_pagamento"] == "Aprovado"].copy()
 print(f"Pedidos aprovados: {len(df):,} de {len(vendas):,}")
 
 
-# ======================================================================
-# 4. COLUNAS DERIVADAS
-# ======================================================================
-# --- Desconto ---------------------------------------------------------
 df["desconto_pct"] = df["desconto_reais"] / df["receita_bruta"] * 100
 df["tem_desconto"] = df["desconto_reais"] > 0
 df["desconto_acima_25"] = df["desconto_pct"] > 25
@@ -105,38 +89,26 @@ df["faixa_desconto"] = pd.cut(
     labels=["0%", "0-10%", "10-20%", "20-25%", "25-30%", ">30%"],
 )
 
-# --- Frete ------------------------------------------------------------
-# Regra detectada: frete grátis acima de R$250, EXCETO no Marketplace
 df["frete_gratis"] = df["custo_frete"] == 0
 df["mk_elegivel_nao_subsidiado"] = (df["receita_liquida"] >= 250) & (df["canal"] == "Marketplace")
 
-# --- Ticket -----------------------------------------------------------
 df["faixa_ticket"] = pd.cut(
     df["receita_liquida"],
     bins=[0, 100, 200, 250, 300, 500, 1000, np.inf],
     labels=["<100", "100-200", "200-250", "250-300", "300-500", "500-1000", ">1000"],
 )
 
-# --- Componentes da margem (% da receita líquida) ---------------------
 df["cmv_pct"] = df["custo_produto"] / df["receita_liquida"] * 100
 df["frete_pct"] = df["custo_frete"] / df["receita_liquida"] * 100
 df["desconto_sobre_bruta_pct"] = df["desconto_reais"] / df["receita_bruta"] * 100
 df["margem_pct"] = df["margem_contribuicao"] / df["receita_liquida"] * 100
 df["margem_negativa"] = df["margem_contribuicao"] < 0
 
-# --- Tempo ------------------------------------------------------------
 df["ano"] = df["data_pedido"].dt.year
 df["mes"] = df["data_pedido"].dt.month
 df["ano_mes"] = df["data_pedido"].dt.to_period("M").astype(str)
 
-# --- Margem realizada (premissa do business case) ---------------------
-# Pedido devolvido é reembolsado: perde a receita e o frete de ida. O item
-# volta ao estoque, então o CMV NÃO entra como perda. É a mesma definição da
-# apresentação ao comitê (linha "margem de contribuição realizada"), para que
-# painel e deck fechem no mesmo número.
 df["margem_realizada"] = np.where(df["devolvido"], -df["custo_frete"], df["margem_contribuicao"])
-# Receita que de fato se realiza (zero para devolvidos) — necessária para
-# calcular o PERCENTUAL corretamente.
 df["receita_realizada"] = np.where(df["devolvido"], 0.0, df["receita_liquida"])
 
 
@@ -146,9 +118,6 @@ def margem_realizada_pct(dados):
     return np.nan if rec == 0 else dados["margem_realizada"].sum() / rec * 100
 
 
-# ======================================================================
-# 5. CALENDÁRIO SAZONAL (base 2023, único ano completo)
-# ======================================================================
 a23 = df[df["ano"] == 2023]
 cal = a23.groupby("mes").agg(
     pedidos=("order_id", "count"),
@@ -169,21 +138,10 @@ cal.index = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
              "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 cal.index.name = "mes"
 
-# Índice sazonal aplicado por mês. Jan/2024 (1.066 pedidos) herda o índice
-# de jan/2023 — aceitável, pois só existe um ano completo na base.
 df["idx_sazonal"] = df["mes"].map(dict(zip(range(1, 13), cal["idx_pedidos"].values)))
 
 
-# ======================================================================
-# 6. OUTRAS BASES (opcional)
-# ======================================================================
 if PROCESSAR_OUTRAS_BASES:
-    # --- 6.1 Estoque: cadastro de SKUs ----------------------------------
-    # Confiável como cadastro: SKU, nome e categoria batem 100% com vendas.
-    # NÃO usar custo_unitario nem preco_venda_sugerido junto com vendas: não
-    # reconciliam com custo_produto/quantidade nem com preco_unitario (o preço
-    # de um mesmo SKU varia de pedido para pedido). Situação, estoque físico e
-    # data da última entrada são a posição na data da extração, não na do pedido.
     est = ler_base("estoque.xlsx")
     est["data_ultima_entrada"] = pd.to_datetime(est["data_ultima_entrada"], errors="coerce")
     print("\n--- ESTOQUE ---")
@@ -201,18 +159,12 @@ if PROCESSAR_OUTRAS_BASES:
     df = df.merge(est[["sku_id", "subcategoria", "fornecedor_id", "lead_time_reposicao", "status_disponibilidade"]]
                   .rename(columns={"status_disponibilidade": "situacao_estoque_atual"}), on="sku_id", how="left")
 
-    # --- 6.2 Atendimento: chamados do SAC -------------------------------
-    # Válido por data (volume mensal acompanha o de pedidos). O vínculo com o
-    # pedido NÃO é confiável: só ~35% dos order_id existem em vendas, ~14% dos
-    # chamados abrem antes do pedido e a categoria não se relaciona com a
-    # devolução. Usar só agregado por data, canal de entrada e motivo.
     at = ler_base("atendimento.xlsx").dropna(subset=["ticket_id"])
     for c in ["categoria_problema", "canal_entrada", "texto_cliente", "status_atendimento"]:
         if c in at.columns:
             at[c] = corrigir_encoding(at[c])
     at["data_abertura"] = pd.to_datetime(at["data_abertura"], errors="coerce")
     at["data_fechamento"] = pd.to_datetime(at["data_fechamento"], errors="coerce")
-    # Chamados ainda abertos vêm com a data da extração no fechamento.
     pendente = at["status_atendimento"].isin(["Aberto", "Em Análise"])
     at.loc[pendente, "data_fechamento"] = pd.NaT
     at["pendente"] = pendente
@@ -230,10 +182,6 @@ if PROCESSAR_OUTRAS_BASES:
     at.to_csv("atendimento_tratado.csv", index=False, encoding="utf-8-sig")
     print(f"atendimento_tratado.csv gerado ({len(at):,} linhas)")
 
-    # --- 6.3 Clientes: cadastro -----------------------------------------
-    # Dados pessoais removidos (nome, nascimento exato, cidade). Diagnóstico:
-    # 331 clientes para 24 mil pedidos, 1 cliente com ~40% dos pedidos e
-    # histórico/LTV sem relação com as vendas. Não usar no painel.
     cli = ler_base("clientes.xlsx")
     ref = pd.to_datetime(cli["data_cadastro"]).max()
     idade = (ref - pd.to_datetime(cli["data_nascimento"], errors="coerce")).dt.days // 365
@@ -251,9 +199,6 @@ if PROCESSAR_OUTRAS_BASES:
     print(f"clientes_tratado.csv gerado, sem dados pessoais ({len(cli):,} linhas)")
 
 
-# ======================================================================
-# 7. SANITY CHECKS
-# ======================================================================
 print("\n--- SANITY CHECKS ---")
 c1 = ((df["margem_contribuicao"] - (df["receita_liquida"] - df["custo_produto"] - df["custo_frete"])).abs() < 0.01).all()
 c2 = ((df["receita_liquida"] - (df["receita_bruta"] - df["desconto_reais"])).abs() < 0.01).all()
@@ -274,9 +219,6 @@ print(f"  fora MK, ticket <  250 : {fora_baixo['frete_gratis'].mean()*100:6.2f}%
 print(f"  Marketplace            : {mk['frete_gratis'].mean()*100:6.2f}%")
 
 
-# ======================================================================
-# 8. INDICADORES-CHAVE (business case)
-# ======================================================================
 R = df["receita_liquida"].sum()
 M = df["margem_contribuicao"].sum()
 print("\n--- INDICADORES ---")
@@ -292,9 +234,6 @@ print(f"Margem c/ desconto .......... {df[df['tem_desconto']]['margem_contribuic
 print(f"Margem s/ desconto .......... {df[~df['tem_desconto']]['margem_contribuicao'].sum()/df[~df['tem_desconto']]['receita_liquida'].sum()*100:.2f}%")
 
 
-# ======================================================================
-# 9. EXPORTAÇÃO
-# ======================================================================
 df.to_csv("vendas_tratada.csv", index=False, encoding="utf-8-sig")
 cal.round(2).to_csv("calendario_sazonal.csv", encoding="utf-8-sig")
 print(f"\nGerados: vendas_tratada.csv ({len(df):,} linhas, {len(df.columns)} colunas) "
