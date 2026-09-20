@@ -225,6 +225,8 @@ div[class*="st-key-card_filtros"] { background:$BARRA; border-color:$LINHA_ACENT
 .stat { background:$ELEVADO; border:1px solid $LINHA_ACENTO; border-radius:10px; padding:14px 18px; min-width:196px; }
 .stat .r { font-family:$FONTE_MONO; font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:$TEXTO_4; }
 .stat .v { font-size:24px; font-weight:400; letter-spacing:-0.03em; color:$TEXTO; margin:6px 0 4px; }
+.stat .r.frase { font-family:$FONTE; font-size:12px; letter-spacing:normal; text-transform:none;
+   color:$TEXTO_3; line-height:1.45; }
 .legenda-div { display:flex; align-items:center; gap:10px; font-family:$FONTE_MONO; font-size:10px;
    letter-spacing:0.16em; color:$TEXTO_4; margin-top:4px; }
 .barra-div { flex:1; height:6px; border-radius:999px;
@@ -780,7 +782,9 @@ with card("filtros"):
             "Últimos 90 dias": (DATA_MAX - pd.Timedelta(days=89), DATA_MAX),
             "Ano de 2023": (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-12-31")),
         }[preset]
-        f[1].text_input("Datas", value=f"{ini:%d/%m/%Y} a {fim:%d/%m/%Y}", disabled=True, key="f_datas_txt")
+        # sem key: com uma key fixa o Streamlit mantém o valor da primeira execução e o campo
+        # continuaria mostrando o período inteiro depois de trocar o preset
+        f[1].text_input("Datas", value=f"{ini:%d/%m/%Y} a {fim:%d/%m/%Y}", disabled=True)
     canais_sel = f[2].multiselect("Canal", list(COR_CANAL), placeholder="Todos", key="f_canal")
     cats_sel = f[3].multiselect("Categoria", list(COR_CATEGORIA), placeholder="Todas", key="f_cat")
     pgto_sel = f[4].multiselect("Pagamento", list(COR_PAGAMENTO), placeholder="Todos", key="f_pgto")
@@ -890,6 +894,21 @@ kpi(k[5], "Taxa de devolução", pct(K.taxa_dev), f"{inteiro(K.devolvidos)} pedi
     "Pedidos devolvidos sobre pedidos aprovados", "devolucao")
 nota(("Variações comparadas a " + f"{p_ini:%d/%m/%Y}–{p_fim:%d/%m/%Y}, período de mesma duração. " if comparavel else "")
      + ("Minigráficos: evolução semanal no período." if dias <= 120 else "Minigráficos: evolução mensal no período."))
+
+with st.expander("Como cada indicador é calculado e por que difere do business case"):
+    st.markdown(f"""
+| Indicador | Universo | Fórmula | No business case |
+| --- | --- | --- | --- |
+| Receita líquida | pedidos **aprovados** do recorte ({inteiro(K.pedidos)} pedidos) | receita bruta − desconto | parte da receita bruta **registrada**, com todos os status (R$ 19,65 mi em 2023), e depois desconta cancelados e pendentes |
+| Margem de contribuição | os mesmos pedidos | receita líquida − CMV − frete | mesma fórmula; no deck é a "margem calculada" |
+| Margem realizada | os mesmos pedidos | devolvido perde a receita e o frete de ida; o item volta ao estoque, então o CMV não é perda | mesma fórmula, mais o custo de atendimento (53,08% em 2023) |
+| Margem realizada com atendimento | idem, mais os chamados ligados a esses pedidos | desconta os chamados abertos **depois** do pedido | idêntica (nota NE7 do deck) |
+
+**Por que os totais diferem do case:** o painel abre no período completo, de {DATA_MIN:%d/%m/%Y} a {DATA_MAX:%d/%m/%Y},
+enquanto o business case cobre 2023 fechado. Selecione o período "Ano de 2023" e os números passam a ser os mesmos
+da apresentação. O painel também não traz pedidos cancelados nem "Aguardando", que no case aparecem como perda
+depois do pedido (R$ 0,77 mi e R$ 0,38 mi): a base tratada guarda apenas os pedidos aprovados.
+""")
 
 
 # ======================================================================
@@ -1240,6 +1259,42 @@ with abas[0]:
                 totals=dict(marker=dict(color=ACENTO)), hovertemplate="%{x}: %{text}<extra></extra>"))
             fig.update_yaxes(range=[0, K.receita_bruta * 1.15], tickprefix="R$ ", tickformat="~s")
             plot(estilo(fig, H_M))
+
+    with card("leitura"):
+        cabecalho("Conclusão do recorte",
+                  "A distância entre a margem de contribuição e a que se realiza, o motivo e a ação de maior valor.")
+        _dev = df[df["devolvido"]]
+        perda_dev = _dev["receita_liquida"].sum() - _dev["custo_produto"].sum()
+        _oper = _dev[_dev["motivo_devolucao"].isin(OPERACIONAIS)]
+        perda_oper = _oper["receita_liquida"].sum() - _oper["custo_produto"].sum()
+        frete_mk = df.loc[df["mk_elegivel_nao_subsidiado"] & ~df["devolvido"], "custo_frete"].sum()
+        _base_teto = df[~df["devolvido"] & (df["mes"] != 11)]
+        _acima = _base_teto["desconto_pct"] > 20
+        excedente = ((_base_teto.loc[_acima, "desconto_pct"] - 20) / 100
+                     * _base_teto.loc[_acima, "receita_bruta"]).sum()
+        gap = K.margem_pct - K.margem_real_pct
+        blocos = [("Margem de contribuição", pct(K.margem_pct, 2), brl_c(K.margem)),
+                  ("Margem realizada", pct(K.margem_real_pct, 2), f"{num(gap, 2)} p.p. abaixo"),
+                  ("Margem perdida em devoluções", brl_c(perda_dev), f"{inteiro(K.devolvidos)} pedidos")]
+        if SAC_ATRIBUIVEL:
+            blocos.append(("Com custo de atendimento", pct(MARGEM_REAL_SAC, 2), brl_c(CUSTO_SAC)))
+        st.markdown('<div class="stats">' + "".join(
+            f'<div class="stat"><div class="r">{esc(r_)}</div><div class="v">{v_}</div>'
+            f'<div class="r">{esc(s_)}</div></div>' for r_, v_, s_ in blocos) + "</div>", unsafe_allow_html=True)
+        texto_conc = (f"A margem de contribuição do recorte é {pct(K.margem_pct, 2)} e a realizada, "
+                      f"{pct(K.margem_real_pct, 2)}. Os {num(gap, 2)} p.p. de diferença são exatamente a margem que "
+                      f"não se realiza nos {inteiro(K.devolvidos)} pedidos devolvidos: {brl_c(perda_dev)}, dos quais "
+                      f"{brl_c(perda_oper)} por defeito ou atraso na entrega.")
+        if SAC_ATRIBUIVEL:
+            texto_conc += (f" Somando os chamados ligados a esses pedidos ({brl_c(CUSTO_SAC)}), a margem realizada "
+                           f"fica em {pct(MARGEM_REAL_SAC, 2)}.")
+        insight(texto_conc,
+                f"Aplicar o teto de 20% no desconto fora de novembro ({brl_c(excedente)} de excedente no recorte) e "
+                f"levar ao Marketplace a regra de frete dos demais canais ({brl_c(frete_mk)}). Nas devoluções, "
+                f"registrar destino do item e causa antes de fixar meta em reais. Simule cada alavanca na aba "
+                f"Simulador.", rotulo="Conclusão")
+        nota("Valores calculados sobre o recorte de filtros ativo. A ação é a do business case; o valor projetado "
+             "de cada alavanca depende das premissas indicadas no Simulador.")
 
     with card("recs"):
         cabecalho("Insights e ações recomendadas",
@@ -1920,19 +1975,49 @@ ALERTAS = {
     "Marketplace pagando frete a partir de R$ 250": lambda d: d["mk_elegivel_nao_subsidiado"],
     "Devolução por defeito ou atraso": lambda d: d["devolvido"] & d["motivo_devolucao"].isin(OPERACIONAIS),
 }
+# Cada alerta tem dois valores distintos: o tamanho do problema hoje e quanto uma regra do
+# business case traria de volta. Onde a base não sustenta a recuperação, o valor fica em branco.
+def _excedente_teto(sub):
+    mantidos = sub[~sub["devolvido"]]
+    acima = mantidos["desconto_pct"] > 20
+    return ((mantidos.loc[acima, "desconto_pct"] - 20) / 100 * mantidos.loc[acima, "receita_bruta"]).sum()
+
+
+MEDIDAS_ALERTA = {
+    "Margem negativa": dict(
+        tamanho=lambda sub: sub["margem_contribuicao"].sum(), rotulo="margem negativa acumulada",
+        recuperavel=lambda sub: None, premissa="sem valor estimável: depende de rever preço ou custo do pedido"),
+    "Desconto acima de 30%": dict(
+        tamanho=lambda sub: sub["desconto_reais"].sum(), rotulo="desconto concedido nesses pedidos",
+        recuperavel=_excedente_teto, premissa="excedente acima do teto de 20%, nos pedidos mantidos"),
+    "Marketplace pagando frete a partir de R$ 250": dict(
+        tamanho=lambda sub: sub["custo_frete"].sum(), rotulo="frete pago pela Vértice",
+        recuperavel=lambda sub: sub.loc[~sub["devolvido"], "custo_frete"].sum(),
+        premissa="frete dos pedidos mantidos, com a regra dos demais canais"),
+    "Devolução por defeito ou atraso": dict(
+        tamanho=lambda sub: sub["receita_liquida"].sum() - sub["custo_produto"].sum(),
+        rotulo="margem que não se realizou", recuperavel=lambda sub: None,
+        premissa="sem valor estimável: a base não registra destino do item nem causa validada"),
+}
+
 with abas[7]:
     with card("alertas"):
-        cabecalho("Pedidos em alerta", "Lista para ação diária. Ordene pelo cabeçalho da tabela e exporte em CSV.")
+        cabecalho("Pedidos em alerta",
+                  "Cada alerta traz o tamanho do problema hoje e, quando a base sustenta, quanto dá para recuperar.")
         resumo = []
         for nome_a, regra in ALERTAS.items():
             sub = df[regra(df)]
-            impacto = {"Margem negativa": sub["margem_contribuicao"].sum(),
-                       "Desconto acima de 30%": sub["desconto_reais"].sum(),
-                       "Marketplace pagando frete a partir de R$ 250": sub["custo_frete"].sum(),
-                       "Devolução por defeito ou atraso": sub["receita_liquida"].sum() - sub["custo_produto"].sum()}[nome_a]
-            resumo.append(f'<div class="stat"><div class="r">{esc(nome_a)}</div>'
-                          f'<div class="v">{inteiro(len(sub))} pedidos</div><div class="r">{brl_c(impacto)}</div></div>')
+            info = MEDIDAS_ALERTA[nome_a]
+            rec = info["recuperavel"](sub) if len(sub) else 0.0
+            linha_rec = (f'Recuperável: {brl_c(rec)} · {info["premissa"]}' if rec is not None
+                         else f'Recuperável: {info["premissa"]}')
+            resumo.append(f'<div class="stat" style="min-width:260px"><div class="r">{esc(nome_a)}</div>'
+                          f'<div class="v">{inteiro(len(sub))} pedidos</div>'
+                          f'<div class="r frase"><b>Tamanho</b> {brl_c(info["tamanho"](sub))} · {esc(info["rotulo"])}</div>'
+                          f'<div class="r frase">{esc(linha_rec)}</div></div>')
         st.markdown('<div class="stats">' + "".join(resumo) + "</div>", unsafe_allow_html=True)
+        nota("Tamanho: o valor que o alerta representa no recorte, já realizado. Recuperável: quanto voltaria com a "
+             "regra do business case, sob a premissa indicada — é projeção, não resultado.")
         escolhidos = st.pills("Tipos de alerta", list(ALERTAS), selection_mode="multi", default=["Margem negativa"],
                               key="alertas_tipos")
         if escolhidos:
@@ -1962,15 +2047,24 @@ with abas[8]:
     with c[0]:
         with card("sim_controles"):
             cabecalho("Alavancas", "Os cálculos usam o recorte de filtros atual")
-            lev_frete = st.slider("Frete do Marketplace a partir de R$ 250 subsidiado", 0, 100, 100, 5,
+            # Todas as alavancas abrem em zero: o painel mostra primeiro o cenário atual, e o ganho
+            # só aparece quando o usuário move uma alavanca. Os padrões vêm do session_state para
+            # que o botão do cenário do business case possa reposicionar os sliders.
+            for _k, _v in {"sim_frete": 0, "sim_teto": 20, "sim_adesao": 0, "sim_dev": 0}.items():
+                st.session_state.setdefault(_k, _v)
+            lev_frete = st.slider("Frete do Marketplace a partir de R$ 250 subsidiado", 0, 100, step=5,
                                   format="%d%%", key="sim_frete")
-            teto = st.slider("Teto de desconto por pedido", 10, 40, 25, 1, format="%d%%", key="sim_teto")
-            adesao = st.slider("Adesão ao teto", 0, 100, 80, 5, format="%d%%", key="sim_adesao")
-            red_dev = st.slider("Redução das devoluções por defeito ou atraso", 0, 100, 40, 5, format="%d%%",
+            teto = st.slider("Teto de desconto por pedido", 10, 40, step=1, format="%d%%", key="sim_teto")
+            adesao = st.slider("Adesão ao teto", 0, 100, step=5, format="%d%%", key="sim_adesao")
+            red_dev = st.slider("Redução das devoluções por defeito ou atraso", 0, 100, step=5, format="%d%%",
                                 key="sim_dev")
-            fora_nov = st.toggle("Excluir novembro do teto", value=True, key="sim_nov",
+            st.session_state.setdefault("sim_nov", True)
+            fora_nov = st.toggle("Excluir novembro do teto", key="sim_nov",
                                  help="Novembro fica fora do teto e sob orçamento de campanha, como na "
                                       "apresentação ao comitê. Desligue para aplicar o teto no ano todo.")
+            st.button("Aplicar o cenário do business case", key="sim_btn_case", width="stretch",
+                      on_click=lambda: st.session_state.update(sim_frete=100, sim_teto=20, sim_adesao=100,
+                                                               sim_dev=0, sim_nov=True))
             nota("Premissas do business case: as alavancas valem sobre pedidos mantidos (não devolvidos); o teto "
                  "recupera a parte do desconto acima dele, ponderada pela adesão, sem perda de volume; cada "
                  "devolução evitada recupera a receita menos o CMV. Valores referentes ao período filtrado.")
@@ -1992,12 +2086,16 @@ with abas[8]:
                if receita_real_nova else np.nan)
     with c[1]:
         with card("sim_resultado"):
-            cabecalho("Resultado projetado")
+            cabecalho("Cenário atual e projeção",
+                      "Com as alavancas em zero, os três blocos mostram o cenário atual. Qualquer valor acima de "
+                      "zero é projeção, válida só sob as premissas ao lado, e não resultado observado.")
             r = st.columns(3, gap="small")
             for col, rot, val, sub in [
-                (r[0], "Margem de contribuição", pct(mc_nova, 2), f"Atual {pct(K.margem_pct, 2)} · +{num(mc_nova - K.margem_pct, 2)} p.p."),
-                (r[1], "Margem realizada", pct(mr_nova, 2), f"Atual {pct(K.margem_real_pct, 2)} · +{num(mr_nova - K.margem_real_pct, 2)} p.p."),
-                (r[2], "Ganho total no período", brl_c(ganho_frete + ganho_desc + ganho_dev),
+                (r[0], "Margem de contribuição", pct(K.margem_pct, 2),
+                 f"Projetada {pct(mc_nova, 2)} · +{num(mc_nova - K.margem_pct, 2)} p.p."),
+                (r[1], "Margem realizada", pct(K.margem_real_pct, 2),
+                 f"Projetada {pct(mr_nova, 2)} · +{num(mr_nova - K.margem_real_pct, 2)} p.p."),
+                (r[2], "Ganho projetado no período", brl_c(ganho_frete + ganho_desc + ganho_dev),
                  f"{pct(pct_afetados)} dos pedidos no teto · "
                  f"{inteiro(len(dev_op) * red_dev / 100)} devoluções evitadas")]:
                 col.markdown(f'<div class="stat"><div class="r">{esc(rot)}</div><div class="v">{val}</div>'
@@ -2019,6 +2117,7 @@ with abas[8]:
 
 st.markdown('<div class="nota" style="margin-top:20px">Definições: margem de contribuição = receita líquida − CMV − '
             'frete, sobre pedidos aprovados. Margem realizada: o pedido devolvido perde a receita e o frete de ida, e '
-            'o item volta ao estoque (mesma definição do business case; o deck desconta ainda o custo de atendimento). '
+            'o item volta ao estoque (mesma definição do business case). A versão "com atendimento" desconta ainda os '
+            'chamados ligados a esses pedidos, abertos depois do pedido. '
             'O business case cobre 2023: escolha o período "Ano de 2023" para reproduzir os números da apresentação. Fontes: vendas_tratada.csv (pedidos, com o cadastro de estoque) e '
             'atendimento_tratado.csv (chamados, recortados só pelo período).</div>', unsafe_allow_html=True)
